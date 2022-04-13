@@ -1,0 +1,3 @@
+{:aliases {:main {:exec-fn  small-stalk.main/-main
+                  :jvm-opts []}}}
+
