@@ -10,3 +10,6 @@
 (defmacro future
   "Like clojure.core/future, but uses virtual threads."
   [& body] `(future-call (^{:once true} fn* [] ~@body)))
+
+ (defn start-thread [f]
+   (Thread/startVirtualThread f))

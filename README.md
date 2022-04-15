@@ -12,3 +12,8 @@ Then:
 ```bash
 clj -X:main
 ```
+
+## Running tests
+```bash
+clj -X:test
+```
