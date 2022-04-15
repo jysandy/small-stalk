@@ -1,6 +1,6 @@
 (ns small-stalk.io
   (:require [clojure.string :as string])
-  (:import (java.io InputStream)))
+  (:import (java.io InputStream OutputStream)))
 
 (defn read-string-until-crlf
   "Reads a string from the input stream until CRLF or EOF is encountered.
@@ -17,3 +17,8 @@
           buffer
           (recur (str buffer (char byte-read))
                  read-buffer))))))
+
+(defn write-crlf-string
+  "Appends \r\n to a string and writes it to the output stream."
+  [^OutputStream output-stream s]
+  (.write output-stream (.getBytes (str s "\r\n") "US-ASCII")))
