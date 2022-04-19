@@ -1,7 +1,10 @@
 (ns small-stalk.server
   (:require [small-stalk.threads :as vthreads]
             [clojure.string :as string]
-            [small-stalk.io :as ssio])
+            [small-stalk.io :as ssio]
+            [small-stalk.commands.parsing :as parsing]
+            [small-stalk.commands.handlers :as handlers]
+            [failjure.core :as f])
   (:import (java.net ServerSocket SocketException)
            (java.io IOException)))
 
@@ -17,7 +20,11 @@
 
 (defn- handle-message [input-stream output-stream message]
   (println "Received message: " message)
-  (ssio/write-crlf-string output-stream message))
+  (f/attempt-all [tokens  (string/split message #" ")
+                  command (parsing/parse-command tokens)]
+    (handlers/handle-command command input-stream output-stream)
+    (f/when-failed [e]
+      (ssio/write-crlf-string output-stream "BAD_FORMAT"))))
 
 (defn command-processing-loop [input-stream output-stream]
   (loop []
@@ -45,9 +52,10 @@
     (fn []
       (try
         (loop []
-          (let [new-socket (.accept @server)]
-            (handle-connection new-socket)
-            (recur)))
+          (when @server
+            (let [new-socket (.accept @server)]
+              (handle-connection new-socket)
+              (recur))))
         (catch SocketException _
           ;; This means the thread was interrupted. https://download.java.net/java/early_access/loom/docs/api/java.base/java/net/ServerSocket.html#accept()
           (println "Stopping server")
