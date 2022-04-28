@@ -7,6 +7,8 @@
 (defn generate-job-id []
   (swap! previous-job-id inc))
 
+(defn reset-job-id! [] (reset! previous-job-id -1))
+
 (defn job-comparator [job1 job2]
   (compare (:priority job1) (:priority job2)))
 

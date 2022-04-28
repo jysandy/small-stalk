@@ -2,7 +2,7 @@
   (:require [failjure.core :as f]
             [small-stalk.failure :as ssf]))
 
-(defn- parser-failure [map]
+(defn parser-failure [map]
   (-> map
       (assoc :type ::parser-failure)
       (ssf/fail)))

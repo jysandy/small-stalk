@@ -2,8 +2,8 @@
  :aliases {:main {:exec-fn  small-stalk.main/-main
                   :jvm-opts []}
            :test {:extra-paths ["test"]
-                  :extra-deps  {io.github.cognitect-labs/test-runner
-                                {:git/tag "v0.5.0" :git/sha "b3fd0d2"}}
+                  :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.0" :git/sha "b3fd0d2"}
+                                mock-clj/mock-clj                    {:mvn/version "0.2.1"}}
                   :main-opts   ["-m" "cognitect.test-runner"]
                   :exec-fn     cognitect.test-runner.api/test}}}
 

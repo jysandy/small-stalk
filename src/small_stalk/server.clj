@@ -24,7 +24,16 @@
                   command (parsing/parse-command tokens)]
     (handlers/handle-command command input-stream output-stream)
     (f/when-failed [e]
-      (ssio/write-crlf-string output-stream "BAD_FORMAT"))))
+      (cond
+        (= {:type ::parsing/parser-failure
+            :name ::parsing/unknown-command} (select-keys e [:type :name]))
+        (ssio/write-crlf-string output-stream "UNKNOWN_COMMAND")
+
+        (= ::parsing/parser-failure (:type e))
+        (ssio/write-crlf-string output-stream "BAD_FORMAT")
+
+        :else
+        (ssio/write-crlf-string output-stream "INTERNAL_ERROR")))))
 
 (defn command-processing-loop [input-stream output-stream]
   (loop []
