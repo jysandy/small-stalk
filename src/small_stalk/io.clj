@@ -2,6 +2,7 @@
   (:require [clojure.string :as string])
   (:import (java.io InputStream OutputStream)))
 
+;; TODO: Return an error if EOF is encountered
 (defn read-string-until-crlf
   "Reads a string from the input stream until CRLF or EOF is encountered.
   Includes the CRLF."

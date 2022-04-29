@@ -1,18 +1,21 @@
 (ns small-stalk.queues
   (:refer-clojure :exclude [take peek])
+  (:require [integrant.core :as ig])
   (:import (java.util.concurrent PriorityBlockingQueue)))
 
-(def previous-job-id (atom -1))
+(defmethod ig/init-key ::job-id-counter
+  [_ init-value]
+  (atom init-value))
 
-(defn generate-job-id []
-  (swap! previous-job-id inc))
-
-(defn reset-job-id! [] (reset! previous-job-id -1))
+(defn generate-job-id [job-id-counter]
+  (swap! job-id-counter inc))
 
 (defn job-comparator [job1 job2]
   (compare (:priority job1) (:priority job2)))
 
-(def default-queue (PriorityBlockingQueue. 1 job-comparator))
+(defmethod ig/init-key ::default-queue
+  [_ _]
+  (PriorityBlockingQueue. 1 job-comparator))
 
 (defn put [^PriorityBlockingQueue queue item]
   (.put queue item))
@@ -23,14 +26,14 @@
 (defn peek [^PriorityBlockingQueue queue]
   (.peek queue))
 
-(defn make-job [priority data]
-  {:id       (generate-job-id)
+(defn make-job [job-id-counter priority data]
+  {:id       (generate-job-id job-id-counter)
    :priority priority
    :data     data})
 
-(defn insert-into-default [priority data]
-  (let [job (make-job priority data)]
-    (put default-queue job)
+(defn insert [^PriorityBlockingQueue queue job-id-counter priority data]
+  (let [job (make-job job-id-counter priority data)]
+    (put queue job)
     job))
 
 (defn as-vector [^PriorityBlockingQueue queue]

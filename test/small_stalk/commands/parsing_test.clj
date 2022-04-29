@@ -3,7 +3,6 @@
             [small-stalk.commands.parsing :as parsing]
             [small-stalk.failure :as ssf]))
 
-
 (deftest parse-command-test
   (testing "Parsing an invalid command"
     (is (= (ssf/fail {:type ::parsing/parser-failure

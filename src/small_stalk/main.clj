@@ -1,6 +1,10 @@
 (ns small-stalk.main
-  (:require [small-stalk.server :as server]))
+  (:require [small-stalk.system :as system]))
+
+(defn- wait-forever [] @(promise))
 
 (defn -main [& _args]
-  (server/start-server!)
-  (.join (server/start-accepting-connections)))
+  (system/start-system!)
+  (.addShutdownHook (Runtime/getRuntime)
+                    (Thread. ^Runnable #(system/stop-system!)))
+  (wait-forever))
