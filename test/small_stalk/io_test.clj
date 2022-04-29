@@ -1,7 +1,8 @@
 (ns small-stalk.io-test
   (:require [clojure.test :refer :all]
             [clojure.java.io :as io]
-            [small-stalk.io :as ssio])
+            [small-stalk.io :as ssio]
+            [small-stalk.failure :as ssf])
   (:import (java.io ByteArrayOutputStream)))
 
 (deftest read-string-until-crlf-test
@@ -12,14 +13,17 @@
     (is (= "foo\r\n"
            (ssio/read-string-until-crlf (io/input-stream
                                           (.getBytes "foo\r\n"))))))
-  (testing "returns the entire stream if CRLF is not encountered"
-    (is (= "foobar"
+  (testing "returns an error with the remaining data if the stream ends before CRLF"
+    (is (= (ssf/fail {:type           ::ssio/eof-reached
+                      :remaining-data "foobar"})
            (ssio/read-string-until-crlf (io/input-stream
                                           (.getBytes "foobar"))))))
-  (testing "returns an empty string if the stream has reached EOF"
+
+  (testing "returns an error if the stream has reached EOF"
     (let [stream (io/input-stream (.getBytes "foobar"))]
       (ssio/read-string-until-crlf stream)
-      (is (= ""
+      (is (= (ssf/fail {:type           ::ssio/eof-reached
+                        :remaining-data ""})
              (ssio/read-string-until-crlf stream))))))
 
 (deftest write-crlf-string-test

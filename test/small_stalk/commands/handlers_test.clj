@@ -8,17 +8,31 @@
 
 (deftest handle-command-test
   (testing "put"
-    (with-open [system     (system/open-system! [::handlers/command-handler])
-                in-stream  (io/input-stream (.getBytes "foobar\r\n"))
-                out-stream (ByteArrayOutputStream.)]
-      (let [handle-command (system/get system ::handlers/command-handler)
-            default-queue  (system/get system ::queues/default-queue)]
-        (handle-command {:command-name "put"
-                         :priority     2}
-                        in-stream
-                        out-stream)
-        (is (= "INSERTED 0\r\n" (.toString out-stream "US-ASCII")))
-        (is (= {:id       0
-                :priority 2
-                :data     "foobar"}
-               (queues/peek default-queue)))))))
+    (testing "when a valid command is sent"
+      (with-open [system     (system/open-system! [::handlers/command-handler])
+                  in-stream  (io/input-stream (.getBytes "foobar\r\n"))
+                  out-stream (ByteArrayOutputStream.)]
+        (let [handle-command (system/get system ::handlers/command-handler)
+              default-queue  (system/get system ::queues/default-queue)]
+          (handle-command {:command-name "put"
+                           :priority     2}
+                          in-stream
+                          out-stream)
+          (is (= "INSERTED 0\r\n" (.toString out-stream "US-ASCII")))
+          (is (= {:id       0
+                  :priority 2
+                  :data     "foobar"}
+                 (queues/peek default-queue))))))
+
+    (testing "when the data ends without a CRLF"
+      (with-open [system     (system/open-system! [::handlers/command-handler])
+                  in-stream  (io/input-stream (.getBytes "foobar"))
+                  out-stream (ByteArrayOutputStream.)]
+        (let [handle-command (system/get system ::handlers/command-handler)
+              default-queue  (system/get system ::queues/default-queue)]
+          (handle-command {:command-name "put"
+                           :priority     2}
+                          in-stream
+                          out-stream)
+          (is (= "" (.toString out-stream "US-ASCII")))
+          (is (nil? (queues/peek default-queue))))))))

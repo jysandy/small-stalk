@@ -4,7 +4,8 @@
             [small-stalk.server :as server]
             [mock-clj.core :as mc]
             [small-stalk.commands.parsing :as parsing]
-            [small-stalk.failure :as ssf])
+            [small-stalk.failure :as ssf]
+            [small-stalk.io :as ssio])
   (:import (java.io ByteArrayOutputStream)))
 
 (deftest command-processing-loop-test
@@ -42,4 +43,20 @@
         (let [command-handler (constantly (ssf/fail {:type ::unknown-failure}))]
           (mc/with-mock [parsing/parse-command {:foo "bar"}]
             (server/command-processing-loop command-handler input-stream output-stream)
-            (is (= "INTERNAL_ERROR\r\n" (.toString output-stream "US-ASCII")))))))))
+            (is (= "INTERNAL_ERROR\r\n" (.toString output-stream "US-ASCII"))))))))
+
+  (testing "when the input stream ends before CRLF"
+    (testing "it does nothing and returns"
+      (with-open [input-stream  (io/input-stream (.getBytes "foo bar"))
+                  output-stream (ByteArrayOutputStream.)]
+        (server/command-processing-loop (constantly nil) input-stream output-stream)
+        (is (= "" (.toString output-stream "US-ASCII"))))))
+
+  (testing "when the command handler returns an output stream closed error"
+    (testing "it does nothing and returns"
+      (with-open [input-stream  (io/input-stream (.getBytes "foo bar"))
+                  output-stream (ByteArrayOutputStream.)]
+        (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/output-stream-closed}))
+                                        input-stream
+                                        output-stream)
+        (is (= "" (.toString output-stream "US-ASCII")))))))

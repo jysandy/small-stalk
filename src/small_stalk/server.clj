@@ -18,6 +18,9 @@
         (instance? Exception e)
         (ssio/write-crlf-string output-stream "INTERNAL_ERROR")
 
+        (= ::ssio/output-stream-closed (:type e))
+        nil
+
         (= {:type ::parsing/parser-failure
             :name ::parsing/unknown-command} (select-keys e [:type :name]))
         (ssio/write-crlf-string output-stream "UNKNOWN_COMMAND")
@@ -31,7 +34,7 @@
 (defn command-processing-loop [command-handler input-stream output-stream]
   (loop []
     (let [message (ssio/read-string-until-crlf input-stream)]
-      (if (string/blank? message)
+      (if (f/failed? message)
         (do (println "Connection closed from foreign host!")
             nil)
         (do (handle-message command-handler input-stream output-stream (string/trim message))
