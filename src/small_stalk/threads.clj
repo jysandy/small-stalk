@@ -13,3 +13,9 @@
 
 (defn start-thread [f]
   (Thread/startVirtualThread f))
+
+(defn schedule
+  "Runs f after delay-ms. Can be cancelled with future-cancel."
+  [^Long delay-ms f]
+  (future (Thread/sleep delay-ms)
+          (f)))
