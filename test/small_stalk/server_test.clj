@@ -59,4 +59,23 @@
         (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/output-stream-closed}))
                                         input-stream
                                         output-stream)
-        (is (= "" (.toString output-stream "US-ASCII")))))))
+        (is (= "" (.toString output-stream "US-ASCII"))))))
+
+  (testing "when a malformed string is read"
+    (testing "it writes BAD_FORMAT to the output stream"
+      (with-open [input-stream  (io/input-stream (byte-array [1 2 5 -1 7 2 4]))
+                  output-stream (ByteArrayOutputStream.)]
+        (server/command-processing-loop (constantly nil)
+                                        input-stream
+                                        output-stream)
+        (is (= "BAD_FORMAT\r\n" (.toString output-stream "US-ASCII"))))))
+
+  (testing "when the command handler returns an invalid character error"
+    (testing "it writes BAD_FORMAT to the output stream"
+      (with-open [input-stream  (io/input-stream (.getBytes "foo bar\r\n"))
+                  output-stream (ByteArrayOutputStream.)]
+        (mc/with-mock [parsing/parse-command {:foo "bar"}]
+          (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/invalid-character}))
+                                          input-stream
+                                          output-stream)
+          (is (= "BAD_FORMAT\r\n" (.toString output-stream "US-ASCII"))))))))

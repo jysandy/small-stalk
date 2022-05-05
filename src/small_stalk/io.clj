@@ -1,7 +1,16 @@
 (ns small-stalk.io
   (:require [clojure.string :as string]
-            [small-stalk.failure :as ssf])
+            [small-stalk.failure :as ssf]
+            [failjure.core :as f])
   (:import (java.io InputStream OutputStream IOException)))
+
+(defn- decode-char
+  "No, this isn't strictly correct, but it'll do for now."
+  [a-byte]
+  (try
+    (char a-byte)
+    (catch IllegalArgumentException _
+      (ssf/fail {:type ::invalid-character}))))
 
 (defn read-string-until-crlf
   "Reads a string from the input stream until CRLF or EOF is encountered.
@@ -17,9 +26,9 @@
           ;; EOF was reached.
           (ssf/fail {:type           ::eof-reached
                      :remaining-data buffer})
-          ;; TODO: Return an error if the byte can't be decoded to a char.
-          (recur (str buffer (char byte-read))
-                 read-buffer))))))
+          (f/when-let-ok? [decoded-char (decode-char byte-read)]
+            (recur (str buffer decoded-char)
+                   read-buffer)))))))
 
 (defn write-crlf-string
   "Appends \r\n to a string and writes it to the output stream."

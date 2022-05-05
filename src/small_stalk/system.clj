@@ -22,7 +22,8 @@
   (reset! system (ig/init config)))
 
 (defn stop-system! []
-  (ig/halt! @system)
+  (when @system
+    (ig/halt! @system))
   (reset! system nil))
 
 (defrecord IntegrantSystem [system]

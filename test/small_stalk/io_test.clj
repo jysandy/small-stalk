@@ -3,7 +3,7 @@
             [clojure.java.io :as io]
             [small-stalk.io :as ssio]
             [small-stalk.failure :as ssf])
-  (:import (java.io ByteArrayOutputStream)))
+  (:import (java.io ByteArrayOutputStream ByteArrayInputStream)))
 
 (deftest read-string-until-crlf-test
   (testing "reads and returns a string until CRLF"
@@ -24,6 +24,11 @@
       (ssio/read-string-until-crlf stream)
       (is (= (ssf/fail {:type           ::ssio/eof-reached
                         :remaining-data ""})
+             (ssio/read-string-until-crlf stream)))))
+
+  (testing "returns an error if the stream has invalid character data"
+    (let [stream (ByteArrayInputStream. (byte-array [1 2 5 -1 7 2 4]))]
+      (is (= (ssf/fail {:type ::ssio/invalid-character})
              (ssio/read-string-until-crlf stream))))))
 
 (deftest write-crlf-string-test

@@ -28,16 +28,24 @@
         (= ::parsing/parser-failure (:type e))
         (ssio/write-crlf-string output-stream "BAD_FORMAT")
 
+        (= ::ssio/invalid-character (:type e))
+        (ssio/write-crlf-string output-stream "BAD_FORMAT")
+
         :else
         (ssio/write-crlf-string output-stream "INTERNAL_ERROR")))))
 
 (defn command-processing-loop [command-handler input-stream output-stream]
   (loop []
-    (let [message (ssio/read-string-until-crlf input-stream)]
-      (if (f/failed? message)
-        (do (println "Connection closed from foreign host!")
-            nil)
-        (do (handle-message command-handler input-stream output-stream (string/trim message))
+    (f/if-let-ok? [message (ssio/read-string-until-crlf input-stream)]
+      (do (handle-message command-handler input-stream output-stream (string/trim message))
+          (recur))
+      (case (:type message)
+        ::ssio/eof-reached (do (println "Connection closed from foreign host!")
+                               nil)
+        ::ssio/invalid-character (do (ssio/write-crlf-string output-stream "BAD_FORMAT")
+                                     (recur))
+
+        (do (ssio/write-crlf-string output-stream "INTERNAL_ERROR")
             (recur))))))
 
 (defmethod ig/init-key ::connection-registry
