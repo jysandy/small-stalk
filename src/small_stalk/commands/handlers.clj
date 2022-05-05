@@ -20,6 +20,13 @@
         nil
         e))))
 
+(defmethod handle-command "peek-ready"
+  [queue-service _job-id-counter _command _input-stream output-stream]
+  (if-let [job (queue-service/peek-ready queue-service)]
+    (do (ssio/write-crlf-string output-stream (str "FOUND " (:id job)))
+        (ssio/write-crlf-string output-stream (:data job)))
+    (ssio/write-crlf-string output-stream "NOT_FOUND")))
+
 (defmethod ig/init-key ::command-handler
   [_ {:keys [queue-service job-id-counter]}]
   (partial handle-command queue-service job-id-counter))

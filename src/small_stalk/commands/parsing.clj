@@ -39,7 +39,8 @@
                    ssf/first-failure
                    (into {}))))
 
-(def all-grammars {"put" [[:priority ::non-negative-number]]})
+(def all-grammars {"put"        [[:priority ::non-negative-number]]
+                   "peek-ready" []})
 
 (defn parse-command [[command-name & arg-tokens :as _tokens]]
   (f/attempt-all [args-grammar (or (get all-grammars

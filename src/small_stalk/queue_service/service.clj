@@ -5,6 +5,7 @@
   1. ensure that clients waiting for reserves are given jobs fairly,
   2. write the contents of the mutation queue out to a redo log
   and so on."
+  (:refer-clojure :exclude [peek])
   (:require [small-stalk.queue-service.priority-queue :as pqueue]
             [small-stalk.threads :as vthreads]
             [integrant.core :as ig])
@@ -97,3 +98,6 @@
                                          :job            job
                                          :return-promise return-promise})
     @return-promise))
+
+(defn peek-ready [{:keys [state-atom] :as _service}]
+  (pqueue/peek (:pqueue @state-atom)))

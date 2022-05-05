@@ -17,6 +17,7 @@
           ;; EOF was reached.
           (ssf/fail {:type           ::eof-reached
                      :remaining-data buffer})
+          ;; TODO: Return an error if the byte can't be decoded to a char.
           (recur (str buffer (char byte-read))
                  read-buffer))))))
 
