@@ -4,7 +4,8 @@
             [small-stalk.io :as ssio]
             [small-stalk.commands.parsing :as parsing]
             [failjure.core :as f]
-            [integrant.core :as ig])
+            [integrant.core :as ig]
+            [small-stalk.server.connection :as connection])
   (:import (java.net ServerSocket SocketException)
            (java.io IOException)))
 
@@ -48,36 +49,20 @@
         (do (ssio/write-crlf-string output-stream "INTERNAL_ERROR")
             (recur))))))
 
-(defmethod ig/init-key ::connection-registry
-  [_ _]
-  (atom #{}))
-
-(defn- register-socket! [connection-registry socket]
-  (swap! connection-registry conj socket))
-
-(defn- remove-socket! [connection-registry socket]
-  (when-not (.isClosed socket)
-    (.close socket))
-  (swap! connection-registry disj socket))
-
-(defn- remove-all-sockets! [connection-registry]
-  (doseq [socket @connection-registry]
-    (remove-socket! connection-registry socket)))
-
 (defn- handle-connection [connection-registry command-handler socket]
   (vthreads/start-thread
     (fn []
-      (try
-        (register-socket! connection-registry socket)
-        (with-open [input-stream  (.getInputStream socket)
-                    output-stream (.getOutputStream socket)]
-          (command-processing-loop command-handler input-stream output-stream))
-        (catch SocketException _
-          (println "Connection thread interrupted!"))
-        (catch IOException _
-          (println "Connection closed!"))
-        (finally
-          (remove-socket! connection-registry socket))))))
+      (let [connection-id (connection/register-connection! connection-registry socket)]
+        (try
+          (with-open [input-stream  (.getInputStream socket)
+                      output-stream (.getOutputStream socket)]
+            (command-processing-loop command-handler input-stream output-stream))
+          (catch SocketException _
+            (println "Connection thread interrupted!"))
+          (catch IOException _
+            (println "Connection closed!"))
+          (finally
+            (connection/remove-connection! connection-registry connection-id)))))))
 
 (defn start-accepting-connections [connection-registry command-handler server-instance]
   (vthreads/start-thread
@@ -86,14 +71,14 @@
         (loop []
           (if (Thread/interrupted)
             (do (println "Stopping acceptor thread!")
-                (remove-all-sockets! connection-registry))
+                (connection/remove-all-connections! connection-registry))
             (let [new-socket (.accept server-instance)]
               (handle-connection connection-registry command-handler new-socket)
               (recur))))
         (catch SocketException _
           ;; This means the server instance was stopped. https://download.java.net/java/early_access/loom/docs/api/java.base/java/net/ServerSocket.html#accept()
           (println "Stopping acceptor thread!")
-          (remove-all-sockets! connection-registry))))))
+          (connection/remove-all-connections! connection-registry))))))
 
 (defmethod ig/init-key ::acceptor-thread
   [_ {:keys [connection-registry tcp-server command-handler]}]

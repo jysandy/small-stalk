@@ -9,9 +9,9 @@
    :small-stalk.queue-service.service/mutation-thread {:queue-service (ig/ref :small-stalk.queue-service.service/queue-service)}
    :small-stalk.commands.handlers/command-handler     {:queue-service  (ig/ref :small-stalk.queue-service.service/queue-service)
                                                        :job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)}
-   :small-stalk.server/connection-registry            nil
+   :small-stalk.server.connection/connection-registry nil
    :small-stalk.server/tcp-server                     {:port 6969}
-   :small-stalk.server/acceptor-thread                {:connection-registry (ig/ref :small-stalk.server/connection-registry)
+   :small-stalk.server/acceptor-thread                {:connection-registry (ig/ref :small-stalk.server.connection/connection-registry)
                                                        :command-handler     (ig/ref :small-stalk.commands.handlers/command-handler)
                                                        :tcp-server          (ig/ref :small-stalk.server/tcp-server)}})
 
