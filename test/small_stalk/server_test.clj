@@ -15,7 +15,7 @@
                   output-stream (ByteArrayOutputStream.)]
         (let [command-handler (mc/make-mock)]
           (mc/with-mock [parsing/parse-command {:foo "bar"}]
-            (server/command-processing-loop command-handler input-stream output-stream)
+            (server/command-processing-loop command-handler 69 input-stream output-stream)
             (let [[command] (mc/last-call command-handler)]
               (is (= [["foo" "bar"]] (mc/last-call parsing/parse-command)))
               (is (= {:foo "bar"} command))))))))
@@ -25,7 +25,7 @@
       (with-open [input-stream  (io/input-stream (.getBytes "foo bar\r\n"))
                   output-stream (ByteArrayOutputStream.)]
         (mc/with-mock [parsing/parse-command (parsing/parser-failure {:name ::parsing/unknown-command})]
-          (server/command-processing-loop (constantly nil) input-stream output-stream)
+          (server/command-processing-loop (constantly nil) 69 input-stream output-stream)
           (is (= "UNKNOWN_COMMAND\r\n" (.toString output-stream "US-ASCII")))))))
 
   (testing "when the command is recognized but the format is bad"
@@ -33,7 +33,7 @@
       (with-open [input-stream  (io/input-stream (.getBytes "foo bar\r\n"))
                   output-stream (ByteArrayOutputStream.)]
         (mc/with-mock [parsing/parse-command (parsing/parser-failure {:name ::parsing/parsing-number-failed})]
-          (server/command-processing-loop (constantly nil) input-stream output-stream)
+          (server/command-processing-loop (constantly nil) 69 input-stream output-stream)
           (is (= "BAD_FORMAT\r\n" (.toString output-stream "US-ASCII")))))))
 
   (testing "when the command parsing succeeds but the command handling returns an error"
@@ -42,14 +42,14 @@
                   output-stream (ByteArrayOutputStream.)]
         (let [command-handler (constantly (ssf/fail {:type ::unknown-failure}))]
           (mc/with-mock [parsing/parse-command {:foo "bar"}]
-            (server/command-processing-loop command-handler input-stream output-stream)
+            (server/command-processing-loop command-handler 69 input-stream output-stream)
             (is (= "INTERNAL_ERROR\r\n" (.toString output-stream "US-ASCII"))))))))
 
   (testing "when the input stream ends before CRLF"
     (testing "it does nothing and returns"
       (with-open [input-stream  (io/input-stream (.getBytes "foo bar"))
                   output-stream (ByteArrayOutputStream.)]
-        (server/command-processing-loop (constantly nil) input-stream output-stream)
+        (server/command-processing-loop (constantly nil) 69 input-stream output-stream)
         (is (= "" (.toString output-stream "US-ASCII"))))))
 
   (testing "when the command handler returns an output stream closed error"
@@ -57,6 +57,17 @@
       (with-open [input-stream  (io/input-stream (.getBytes "foo bar"))
                   output-stream (ByteArrayOutputStream.)]
         (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/output-stream-closed}))
+                                        69
+                                        input-stream
+                                        output-stream)
+        (is (= "" (.toString output-stream "US-ASCII"))))))
+
+  (testing "when the command handler returns an EOF reached error"
+    (testing "it does nothing and returns"
+      (with-open [input-stream  (io/input-stream (.getBytes "foo bar"))
+                  output-stream (ByteArrayOutputStream.)]
+        (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/eof-reached}))
+                                        69
                                         input-stream
                                         output-stream)
         (is (= "" (.toString output-stream "US-ASCII"))))))
@@ -66,6 +77,7 @@
       (with-open [input-stream  (io/input-stream (byte-array [1 2 5 -1 7 2 4]))
                   output-stream (ByteArrayOutputStream.)]
         (server/command-processing-loop (constantly nil)
+                                        69
                                         input-stream
                                         output-stream)
         (is (= "BAD_FORMAT\r\n" (.toString output-stream "US-ASCII"))))))
@@ -76,6 +88,7 @@
                   output-stream (ByteArrayOutputStream.)]
         (mc/with-mock [parsing/parse-command {:foo "bar"}]
           (server/command-processing-loop (constantly (ssf/fail {:type ::ssio/invalid-character}))
+                                          69
                                           input-stream
                                           output-stream)
           (is (= "BAD_FORMAT\r\n" (.toString output-stream "US-ASCII"))))))))

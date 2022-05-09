@@ -9,17 +9,17 @@
   (:import (java.net ServerSocket SocketException)
            (java.io IOException)))
 
-(defn- handle-message [command-handler input-stream output-stream message]
+(defn- handle-message [command-handler connection-id input-stream output-stream message]
   (println "Received message: " message)
   (f/attempt-all [tokens  (string/split message #" ")
                   command (parsing/parse-command tokens)]
-    (f/try* (command-handler command input-stream output-stream))
+    (f/try* (command-handler command connection-id input-stream output-stream))
     (f/when-failed [e]
       (cond
         (instance? Exception e)
         (ssio/write-crlf-string output-stream "INTERNAL_ERROR")
 
-        (= ::ssio/output-stream-closed (:type e))
+        (#{::ssio/output-stream-closed ::ssio/eof-reached} (:type e))
         nil
 
         (= {:type ::parsing/parser-failure
@@ -35,10 +35,14 @@
         :else
         (ssio/write-crlf-string output-stream "INTERNAL_ERROR")))))
 
-(defn command-processing-loop [command-handler input-stream output-stream]
+(defn command-processing-loop [command-handler connection-id input-stream output-stream]
   (loop []
     (f/if-let-ok? [message (ssio/read-string-until-crlf input-stream)]
-      (do (handle-message command-handler input-stream output-stream (string/trim message))
+      (do (handle-message command-handler
+                          connection-id
+                          input-stream
+                          output-stream
+                          (string/trim message))
           (recur))
       (case (:type message)
         ::ssio/eof-reached (do (println "Connection closed from foreign host!")
@@ -56,7 +60,7 @@
         (try
           (with-open [input-stream  (.getInputStream socket)
                       output-stream (.getOutputStream socket)]
-            (command-processing-loop command-handler input-stream output-stream))
+            (command-processing-loop command-handler connection-id input-stream output-stream))
           (catch SocketException _
             (println "Connection thread interrupted!"))
           (catch IOException _

@@ -5,7 +5,6 @@
   1. ensure that clients waiting for reserves are given jobs fairly,
   2. write the contents of the mutation queue out to a redo log
   and so on."
-  (:refer-clojure :exclude [peek])
   (:require [small-stalk.queue-service.priority-queue :as pqueue]
             [small-stalk.threads :as vthreads]
             [integrant.core :as ig])
@@ -61,10 +60,49 @@
 ;; Mutators
 (defmulti process-mutation (fn [_state-atom mutation] (:type mutation)))
 
+(defn- push-job [state job]
+  (update state :pqueue pqueue/push (:priority job) job))
+
+(defn- next-waiting-reserve [{:keys [waiting-reserves] :as _state}]
+  (clojure.core/peek waiting-reserves))
+
+(defn- reserve-job [state job connection-id]
+  (update state :reserved-jobs conj (assoc job :reserved-by connection-id)))
+
 (defmethod process-mutation ::put
   [state-atom {:keys [job return-promise] :as _mutation}]
-  (swap! state-atom update :pqueue pqueue/push (:priority job) job)
-  (deliver return-promise job))
+  (let [[old-state] (swap-vals! state-atom
+                                (fn [state]
+                                  (if-let [waiting-reserve (next-waiting-reserve state)]
+                                    (-> state
+                                        (update :waiting-reserves pop)
+                                        (reserve-job job (:connection-id waiting-reserve)))
+                                    (push-job state job))))]
+    (when-let [waiting-reserve (next-waiting-reserve old-state)]
+      (deliver (:return-promise waiting-reserve) job))
+    (deliver return-promise job)))
+
+(defn- enqueue-reserve [state reserve-mutation]
+  (update state :waiting-reserves conj reserve-mutation))
+
+(defmethod process-mutation ::reserve
+  [state-atom {:keys [return-promise connection-id] :as mutation}]
+  ;; swap-vals! is used to make sure that we read the reserved job correctly
+  ;; after the swap, without race conditions and without needing a lock.
+  ;; Yes, the mutation processor is single-threaded (for now). But it doesn't
+  ;; hurt to be defensive.
+  ;; We need to read it separately to deliver it because we can't put side effects
+  ;; into a swap.
+  (let [[old-state] (swap-vals! state-atom
+                                (fn [state]
+                                  (if-let [ready-job (pqueue/peek (:pqueue state))]
+                                    (-> state
+                                        (reserve-job ready-job connection-id)
+                                        (update :pqueue pqueue/pop))
+                                    (enqueue-reserve state mutation))))
+        ready-job (pqueue/peek (:pqueue old-state))]
+    (when ready-job
+      (deliver return-promise ready-job))))
 
 ;; Initialization and mutation thread
 (defn start-queue-service [{:keys [state-atom mutation-queue] :as _service}]
@@ -88,7 +126,9 @@
 
 (defmethod ig/init-key ::queue-service
   [_ _]
-  {:state-atom     (atom {:pqueue (pqueue/create)})
+  {:state-atom     (atom {:pqueue           (pqueue/create)
+                          :reserved-jobs    #{}
+                          :waiting-reserves (PersistentQueue/EMPTY)})
    :mutation-queue (LinkedBlockingQueue.)})
 
 ;; API
@@ -101,3 +141,10 @@
 
 (defn peek-ready [{:keys [state-atom] :as _service}]
   (pqueue/peek (:pqueue @state-atom)))
+
+(defn reserve [{:keys [mutation-queue] :as _service} connection-id]
+  (let [return-promise (promise)]
+    (.put ^BlockingQueue mutation-queue {:type           ::reserve
+                                         :connection-id  connection-id
+                                         :return-promise return-promise})
+    @return-promise))

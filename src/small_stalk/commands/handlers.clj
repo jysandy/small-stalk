@@ -6,22 +6,26 @@
             [integrant.core :as ig]
             [failjure.core :as f]))
 
-(defmulti handle-command (fn [_queue-service _job-id-counter command _in-stream _out-stream] (:command-name command)))
+(defmulti handle-command (fn [_queue-service _job-id-counter command _connection_id _in-stream _out-stream]
+                           (:command-name command)))
 
 (defmethod handle-command "put"
-  [queue-service job-id-counter {:keys [priority]} input-stream output-stream]
+  [queue-service job-id-counter {:keys [priority]} _connection-id input-stream output-stream]
   (f/attempt-all [data (f/ok-> (ssio/read-string-until-crlf input-stream)
                                string/trim)
                   job  (queue-service/put queue-service
                                           (job/make-job job-id-counter priority data))]
-    (ssio/write-crlf-string output-stream (str "INSERTED " (:id job)))
-    (f/when-failed [e]
-      (if (= ::ssio/eof-reached (:type e))
-        nil
-        e))))
+    (ssio/write-crlf-string output-stream (str "INSERTED " (:id job)))))
+
+(defmethod handle-command "reserve"
+  [queue-service _job-id-counter _command connection-id _input-stream output-stream]
+  (f/attempt-all [{:keys [id data] :as _reserved-job} (queue-service/reserve queue-service
+                                                                             connection-id)
+                  _ (ssio/write-crlf-string output-stream (str "RESERVED " id))]
+    (ssio/write-crlf-string output-stream (str data))))
 
 (defmethod handle-command "peek-ready"
-  [queue-service _job-id-counter _command _input-stream output-stream]
+  [queue-service _job-id-counter _command _connection-id _input-stream output-stream]
   (if-let [job (queue-service/peek-ready queue-service)]
     (do (ssio/write-crlf-string output-stream (str "FOUND " (:id job)))
         (ssio/write-crlf-string output-stream (:data job)))
