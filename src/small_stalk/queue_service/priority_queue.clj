@@ -3,6 +3,7 @@
   Not the most efficient, but it gets the job done as long as you don't need a huge number of priorities.
   Who needs 100 priorities anyway?"
   (:refer-clojure :exclude [pop peek])
+  (:require [medley.core :as medley])
   (:import (clojure.lang PersistentQueue)))
 
 (comment
@@ -50,6 +51,25 @@
   [queue]
   (clojure.core/peek (get queue (first-priority queue))))
 
+(defn- clear-empty-queues
+  "Removes all keys mapped to empty persistent queues."
+  [queue]
+  (medley/remove-vals empty? queue))
+
+(defn- remove-by
+  "Returns a new persistent queue with all items matching pred removed."
+  [pred persistent-queue]
+  (->> (seq persistent-queue)
+       (remove pred)
+       (into (PersistentQueue/EMPTY))))
+
+(defn delete-by
+  "Returns a new queue with items matching pred removed."
+  [pred queue]
+  (->> queue
+       (medley/map-vals #(remove-by pred %))
+       clear-empty-queues))
+
 (defn to-seq
   "Converts a persistent priority queue to a sequence of priority-value tuples.
   The tuples are ordered according to the priority queue's ordering rules."
@@ -61,3 +81,12 @@
                  (map (fn [item]
                         [priority item])
                       persistent-queue)))))
+
+(defn find-by
+  "Returns elements in the queue matching pred. Does not include their priorities,
+  but elements will be in priority order."
+  [pred queue]
+  (->> queue
+       to-seq
+       (map second)
+       (filter pred)))

@@ -112,18 +112,31 @@
                       (= connection-id reserved-by))))
        first))
 
+(defn- find-ready-job [{:keys [pqueue] :as _current-state} job-id]
+  (first (pqueue/find-by #(= job-id (:id %)) pqueue)))
+
 (defmethod process-mutation ::delete
   [state-atom {:keys [return-promise job-id connection-id]}]
   (let [[old-state] (swap-vals! state-atom
                                 (fn [current-state]
-                                  (if-let [job-to-delete (find-reserved-job current-state
-                                                                            job-id
-                                                                            connection-id)]
-                                    (update current-state :reserved-jobs disj job-to-delete)
-                                    current-state)))]
-    (if-let [job-to-delete (find-reserved-job old-state
-                                              job-id
-                                              connection-id)]
+                                  (let [reserved-job-to-delete (find-reserved-job current-state
+                                                                                  job-id
+                                                                                  connection-id)
+                                        ready-job-to-delete    (find-ready-job current-state job-id)]
+                                    (cond
+                                      (some? reserved-job-to-delete) (update current-state
+                                                                             :reserved-jobs
+                                                                             disj
+                                                                             reserved-job-to-delete)
+                                      (some? ready-job-to-delete) (update current-state
+                                                                          :pqueue
+                                                                          (partial pqueue/delete-by
+                                                                                   #(= job-id (:id %))))
+                                      :else current-state))))]
+    (if-let [job-to-delete (or (find-reserved-job old-state
+                                                  job-id
+                                                  connection-id)
+                               (find-ready-job old-state job-id))]
       (deliver return-promise (dissoc job-to-delete :reserved-by))
       (deliver return-promise (ssf/fail {:type ::job-not-found})))))
 

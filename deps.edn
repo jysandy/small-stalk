@@ -1,5 +1,6 @@
 {:deps    {failjure/failjure   {:mvn/version "2.2.0"}
-           integrant/integrant {:mvn/version "0.8.0"}}
+           integrant/integrant {:mvn/version "0.8.0"}
+           medley/medley       {:mvn/version "1.4.0"}}
  :aliases {:main {:exec-fn  small-stalk.main/-main
                   :jvm-opts []}
            :test {:extra-paths ["test"]

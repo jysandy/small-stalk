@@ -64,3 +64,26 @@
            (-> queue
                (call-repeatedly pqueue/pop 3)
                (pqueue/peek))))))
+
+(deftest delete-by-test
+  (let [queue          (-> (pqueue/create)
+                           (pqueue/push 10 1)
+                           (pqueue/push 5 2)
+                           (pqueue/push 1 3)
+                           (pqueue/push 1 4))
+        filtered-queue (pqueue/delete-by even? queue)]
+    (is (= 3 (pqueue/peek filtered-queue)))
+    (is (= [[1 3] [10 1]] (pqueue/to-seq filtered-queue)))
+    (is (= (-> (pqueue/create)
+               (pqueue/push 10 1)
+               (pqueue/push 1 3))
+           filtered-queue))))
+
+(deftest find-by-test
+  (let [queue          (-> (pqueue/create)
+                           (pqueue/push 10 1)
+                           (pqueue/push 5 2)
+                           (pqueue/push 1 3)
+                           (pqueue/push 1 4))]
+    (is (= [3 1] (pqueue/find-by odd? queue)))
+    (is (= [4 2] (pqueue/find-by even? queue)))))
