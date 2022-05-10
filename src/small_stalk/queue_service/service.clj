@@ -133,9 +133,11 @@
     (fn []
       (try
         (loop []
-          (let [mutation (.take ^BlockingQueue mutation-queue)]
-            (process-mutation state-atom mutation)
-            (recur)))
+          (if (.isInterrupted (Thread/currentThread))
+            (println "Queue service mutation thread interrupted! Shutting it down!")
+            (let [mutation (.take ^BlockingQueue mutation-queue)]
+              (process-mutation state-atom mutation)
+              (recur))))
         (catch InterruptedException _
           (println "Queue service mutation thread interrupted! Shutting it down!"))))))
 
