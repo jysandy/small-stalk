@@ -41,7 +41,8 @@
 
 (def all-grammars {"put"        [[:priority ::non-negative-number]]
                    "peek-ready" []
-                   "reserve"    []})
+                   "reserve"    []
+                   "delete"     [[:job-id ::non-negative-number]]})
 
 (defn parse-command [[command-name & arg-tokens :as _tokens]]
   (f/attempt-all [args-grammar (or (get all-grammars

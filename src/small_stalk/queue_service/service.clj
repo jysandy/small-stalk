@@ -7,7 +7,8 @@
   and so on."
   (:require [small-stalk.queue-service.priority-queue :as pqueue]
             [small-stalk.threads :as vthreads]
-            [integrant.core :as ig])
+            [integrant.core :as ig]
+            [small-stalk.failure :as ssf])
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)
            (clojure.lang PersistentQueue)))
 
@@ -104,6 +105,28 @@
     (when ready-job
       (deliver return-promise ready-job))))
 
+(defn- find-reserved-job [{:keys [reserved-jobs] :as _current-state} job-id connection-id]
+  (->> reserved-jobs
+       (filter (fn [{:keys [id reserved-by]}]
+                 (and (= job-id id)
+                      (= connection-id reserved-by))))
+       first))
+
+(defmethod process-mutation ::delete
+  [state-atom {:keys [return-promise job-id connection-id]}]
+  (let [[old-state] (swap-vals! state-atom
+                                (fn [current-state]
+                                  (if-let [job-to-delete (find-reserved-job current-state
+                                                                            job-id
+                                                                            connection-id)]
+                                    (update current-state :reserved-jobs disj job-to-delete)
+                                    current-state)))]
+    (if-let [job-to-delete (find-reserved-job old-state
+                                              job-id
+                                              connection-id)]
+      (deliver return-promise (dissoc job-to-delete :reserved-by))
+      (deliver return-promise (ssf/fail {:type ::job-not-found})))))
+
 ;; Initialization and mutation thread
 (defn start-queue-service [{:keys [state-atom mutation-queue] :as _service}]
   (vthreads/start-thread
@@ -146,5 +169,13 @@
   (let [return-promise (promise)]
     (.put ^BlockingQueue mutation-queue {:type           ::reserve
                                          :connection-id  connection-id
+                                         :return-promise return-promise})
+    @return-promise))
+
+(defn delete [{:keys [mutation-queue] :as _service} connection-id job-id]
+  (let [return-promise (promise)]
+    (.put ^BlockingQueue mutation-queue {:type           ::delete
+                                         :connection-id  connection-id
+                                         :job-id         job-id
                                          :return-promise return-promise})
     @return-promise))

@@ -46,7 +46,7 @@
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            q-service (system/get system ::queue-service/queue-service)]
+            q-service      (system/get system ::queue-service/queue-service)]
         (queue-service/put q-service {:id       5
                                       :priority 2
                                       :data     "foobar"})
@@ -74,7 +74,7 @@
               in-stream  (io/input-stream (.getBytes ""))
               out-stream (ByteArrayOutputStream.)]
     (let [handle-command (system/get system ::handlers/command-handler)
-          q-service (system/get system ::queue-service/queue-service)]
+          q-service      (system/get system ::queue-service/queue-service)]
       (queue-service/put q-service {:id       5
                                     :priority 2
                                     :data     "foobar"})
@@ -83,3 +83,35 @@
                       in-stream
                       out-stream)
       (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
+
+(deftest handle-delete-command-test
+  (testing "when the job was found"
+    (with-open [system     (system/open-system! [::handlers/command-handler
+                                                 ::queue-service/mutation-thread])
+                in-stream  (io/input-stream (.getBytes ""))
+                out-stream (ByteArrayOutputStream.)]
+      (let [handle-command (system/get system ::handlers/command-handler)
+            q-service      (system/get system ::queue-service/queue-service)]
+        (queue-service/put q-service {:id       5
+                                      :priority 2
+                                      :data     "foobar"})
+        (queue-service/reserve q-service 69)
+        (handle-command {:command-name "delete"
+                         :job-id       5}
+                        69
+                        in-stream
+                        out-stream)
+        (is (= "DELETED\r\n" (.toString out-stream "US-ASCII"))))))
+
+  (testing "when the job was not found"
+    (with-open [system     (system/open-system! [::handlers/command-handler
+                                                 ::queue-service/mutation-thread])
+                in-stream  (io/input-stream (.getBytes ""))
+                out-stream (ByteArrayOutputStream.)]
+      (let [handle-command (system/get system ::handlers/command-handler)]
+        (handle-command {:command-name "delete"
+                         :job-id       5}
+                        69
+                        in-stream
+                        out-stream)
+        (is (= "NOT_FOUND\r\n" (.toString out-stream "US-ASCII")))))))

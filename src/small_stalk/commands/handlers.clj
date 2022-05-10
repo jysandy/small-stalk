@@ -31,6 +31,15 @@
         (ssio/write-crlf-string output-stream (:data job)))
     (ssio/write-crlf-string output-stream "NOT_FOUND")))
 
+(defmethod handle-command "delete"
+  [queue-service _job-id-counter {:keys [job-id] :as _command} connection-id _input-stream output-stream]
+  (let [deleted-job-or-error (queue-service/delete queue-service connection-id job-id)]
+    (cond
+      (f/ok? deleted-job-or-error) (ssio/write-crlf-string output-stream "DELETED")
+      (= ::queue-service/job-not-found
+         (:type deleted-job-or-error)) (ssio/write-crlf-string output-stream "NOT_FOUND")
+      :else deleted-job-or-error)))
+
 (defmethod ig/init-key ::command-handler
   [_ {:keys [queue-service job-id-counter]}]
   (partial handle-command queue-service job-id-counter))
