@@ -40,6 +40,15 @@
          (:type deleted-job-or-error)) (ssio/write-crlf-string output-stream "NOT_FOUND")
       :else deleted-job-or-error)))
 
+(defmethod handle-command "release"
+  [queue-service _job-id-counter {:keys [job-id new-priority] :as _command} connection-id _input-stream output-stream]
+  (let [released-job-or-error (queue-service/release queue-service connection-id job-id new-priority)]
+    (cond
+      (f/ok? released-job-or-error) (ssio/write-crlf-string output-stream "RELEASED")
+      (= ::queue-service/job-not-found
+         (:type released-job-or-error)) (ssio/write-crlf-string output-stream "NOT_FOUND")
+      :else released-job-or-error)))
+
 (defmethod ig/init-key ::command-handler
   [_ {:keys [queue-service job-id-counter]}]
   (partial handle-command queue-service job-id-counter))

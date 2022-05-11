@@ -12,56 +12,7 @@
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)
            (clojure.lang PersistentQueue)))
 
-(comment
-  {2  q1
-   5  q2
-   6  q3
-   10 q4}
-
-  ;; reserved jobs
-  #{}
-
-  ;; queued reserves
-  [r1 r2]
-
-  ;; BlockingQueue
-  [{:command        :reserve
-    :worker         2
-    :return-promise (promise)}
-   {:command        :put
-    :priority       2
-    :item           "foo"
-    :return-promise (promise)}]
-  ;; acceptor thread which processes these commands
-
-  ;; need timers / timer threads to process timeouts and TTRs
-
-
-
-  ;; service state
-  {:state-atom     (atom {:pqueue           (pqueue/create)
-                          :reserved-jobs    #{}
-                          :waiting-reserves (PersistentQueue/EMPTY)})
-   :mutation-queue (LinkedBlockingQueue.)}
-
-  ;; mutations
-  {:type           ::put
-   :job            {:id       1
-                    :priority 2
-                    :data     "foo"}
-   :return-promise (promise)}
-
-  ;; WIP:
-  {:type           ::reserve
-   :job-id         nil
-   :return-promise (promise)}
-
-  )
-
-;; Mutators
-(defmulti process-mutation (fn [_state-atom mutation] (:type mutation)))
-
-(defn- push-job [state job]
+(defn- add-ready-job [state job]
   (update state :pqueue pqueue/push (:priority job) job))
 
 (defn- next-waiting-reserve [{:keys [waiting-reserves] :as _state}]
@@ -70,21 +21,46 @@
 (defn- reserve-job [state job connection-id]
   (update state :reserved-jobs conj (assoc job :reserved-by connection-id)))
 
-(defmethod process-mutation ::put
-  [state-atom {:keys [job return-promise] :as _mutation}]
-  (let [[old-state] (swap-vals! state-atom
-                                (fn [state]
-                                  (if-let [waiting-reserve (next-waiting-reserve state)]
-                                    (-> state
-                                        (update :waiting-reserves pop)
-                                        (reserve-job job (:connection-id waiting-reserve)))
-                                    (push-job state job))))]
-    (when-let [waiting-reserve (next-waiting-reserve old-state)]
-      (deliver (:return-promise waiting-reserve) job))
-    (deliver return-promise job)))
+(defn- put-job [state job]
+  (if-let [waiting-reserve (next-waiting-reserve state)]
+    (-> state
+        (update :waiting-reserves pop)
+        (reserve-job job (:connection-id waiting-reserve)))
+    (add-ready-job state job)))
+
+(defn- find-reserved-job [{:keys [reserved-jobs] :as _current-state} job-id connection-id]
+  (->> reserved-jobs
+       (filter (fn [{:keys [id reserved-by]}]
+                 (and (= job-id id)
+                      (= connection-id reserved-by))))
+       first))
+
+(defn- release-job [current-state connection-id job-id new-priority]
+  (if-let [reserved-job (find-reserved-job current-state
+                                           job-id
+                                           connection-id)]
+    (-> current-state
+        (update :reserved-jobs disj reserved-job)
+        (put-job (-> reserved-job
+                     (dissoc :reserved-by)
+                     (assoc :priority new-priority))))
+    current-state))
 
 (defn- enqueue-reserve [state reserve-mutation]
   (update state :waiting-reserves conj reserve-mutation))
+
+(defn- find-ready-job [{:keys [pqueue] :as _current-state} job-id]
+  (first (pqueue/find-by #(= job-id (:id %)) pqueue)))
+
+;; Mutators
+(defmulti process-mutation (fn [_state-atom mutation] (:type mutation)))
+
+(defmethod process-mutation ::put
+  [state-atom {:keys [job return-promise] :as _mutation}]
+  (let [[old-state] (swap-vals! state-atom put-job job)]
+    (when-let [waiting-reserve (next-waiting-reserve old-state)]
+      (deliver (:return-promise waiting-reserve) job))
+    (deliver return-promise job)))
 
 (defmethod process-mutation ::reserve
   [state-atom {:keys [return-promise connection-id] :as mutation}]
@@ -104,16 +80,6 @@
         ready-job (pqueue/peek (:pqueue old-state))]
     (when ready-job
       (deliver return-promise ready-job))))
-
-(defn- find-reserved-job [{:keys [reserved-jobs] :as _current-state} job-id connection-id]
-  (->> reserved-jobs
-       (filter (fn [{:keys [id reserved-by]}]
-                 (and (= job-id id)
-                      (= connection-id reserved-by))))
-       first))
-
-(defn- find-ready-job [{:keys [pqueue] :as _current-state} job-id]
-  (first (pqueue/find-by #(= job-id (:id %)) pqueue)))
 
 (defmethod process-mutation ::delete
   [state-atom {:keys [return-promise job-id connection-id]}]
@@ -138,6 +104,20 @@
                                                   connection-id)
                                (find-ready-job old-state job-id))]
       (deliver return-promise (dissoc job-to-delete :reserved-by))
+      (deliver return-promise (ssf/fail {:type ::job-not-found})))))
+
+(defmethod process-mutation ::release
+  [state-atom {:keys [connection-id job-id new-priority return-promise] :as _mutation}]
+  (let [[old-state] (swap-vals! state-atom release-job connection-id job-id new-priority)]
+    (if-let [reserved-job (find-reserved-job old-state
+                                             job-id
+                                             connection-id)]
+      (let [released-job (-> reserved-job
+                             (dissoc :reserved-by)
+                             (assoc :priority new-priority))]
+        (do (when-let [waiting-reserve (next-waiting-reserve old-state)]
+              (deliver (:return-promise waiting-reserve) released-job))
+            (deliver return-promise released-job)))
       (deliver return-promise (ssf/fail {:type ::job-not-found})))))
 
 ;; Initialization and mutation thread
@@ -192,5 +172,14 @@
     (.put ^BlockingQueue mutation-queue {:type           ::delete
                                          :connection-id  connection-id
                                          :job-id         job-id
+                                         :return-promise return-promise})
+    @return-promise))
+
+(defn release [{:keys [mutation-queue] :as _service} connection-id job-id new-priority]
+  (let [return-promise (promise)]
+    (.put ^BlockingQueue mutation-queue {:type           ::release
+                                         :connection-id  connection-id
+                                         :job-id         job-id
+                                         :new-priority   new-priority
                                          :return-promise return-promise})
     @return-promise))
