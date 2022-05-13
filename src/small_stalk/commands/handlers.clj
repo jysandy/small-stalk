@@ -24,6 +24,20 @@
                   _ (ssio/write-crlf-string output-stream (str "RESERVED " id))]
     (ssio/write-crlf-string output-stream (str data))))
 
+(defmethod handle-command "reserve-with-timeout"
+  [queue-service _job-id-counter {:keys [timeout-secs]} connection-id _input-stream output-stream]
+  (let [reserved-job-or-error (queue-service/reserve queue-service
+                                                     connection-id
+                                                     timeout-secs)]
+    (cond
+      (f/ok? reserved-job-or-error) (do (ssio/write-crlf-string output-stream
+                                                                (str "RESERVED " (:id reserved-job-or-error)))
+                                        (ssio/write-crlf-string output-stream
+                                                                (str (:data reserved-job-or-error))))
+      (= ::queue-service/reserve-waiting-timed-out
+         (:type reserved-job-or-error)) (ssio/write-crlf-string output-stream "TIMED_OUT")
+      :else reserved-job-or-error)))
+
 (defmethod handle-command "peek-ready"
   [queue-service _job-id-counter _command _connection-id _input-stream output-stream]
   (if-let [job (queue-service/peek-ready queue-service)]

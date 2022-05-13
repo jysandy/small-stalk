@@ -84,6 +84,37 @@
                       out-stream)
       (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
 
+(deftest handle-reserve-with-timeout-command-test
+  (testing "when a job was found"
+    (with-open [system     (system/open-system! [::handlers/command-handler
+                                                 ::queue-service/mutation-thread])
+                in-stream  (io/input-stream (.getBytes ""))
+                out-stream (ByteArrayOutputStream.)]
+      (let [handle-command (system/get system ::handlers/command-handler)
+            q-service      (system/get system ::queue-service/queue-service)]
+        (queue-service/put q-service {:id       5
+                                      :priority 2
+                                      :data     "foobar"})
+        (handle-command {:command-name "reserve-with-timeout"
+                         :timeout-secs 0}
+                        69
+                        in-stream
+                        out-stream)
+        (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
+
+  (testing "when the reserve times out"
+    (with-open [system     (system/open-system! [::handlers/command-handler
+                                                 ::queue-service/mutation-thread])
+                in-stream  (io/input-stream (.getBytes ""))
+                out-stream (ByteArrayOutputStream.)]
+      (let [handle-command (system/get system ::handlers/command-handler)]
+        (handle-command {:command-name "reserve-with-timeout"
+                         :timeout-secs 0}
+                        69
+                        in-stream
+                        out-stream)
+        (is (= "TIMED_OUT\r\n" (.toString out-stream "US-ASCII")))))))
+
 (deftest handle-delete-command-test
   (testing "when the job was found"
     (with-open [system     (system/open-system! [::handlers/command-handler

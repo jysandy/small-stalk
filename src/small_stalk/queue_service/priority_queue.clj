@@ -3,7 +3,8 @@
   Not the most efficient, but it gets the job done as long as you don't need a huge number of priorities.
   Who needs 100 priorities anyway?"
   (:refer-clojure :exclude [pop peek])
-  (:require [medley.core :as medley])
+  (:require [medley.core :as medley]
+            [small-stalk.queue-service.persistent-queue :as persistent-queue])
   (:import (clojure.lang PersistentQueue)))
 
 (comment
@@ -56,18 +57,11 @@
   [queue]
   (medley/remove-vals empty? queue))
 
-(defn- remove-by
-  "Returns a new persistent queue with all items matching pred removed."
-  [pred persistent-queue]
-  (->> (seq persistent-queue)
-       (remove pred)
-       (into (PersistentQueue/EMPTY))))
-
 (defn delete-by
   "Returns a new queue with items matching pred removed."
   [pred queue]
   (->> queue
-       (medley/map-vals #(remove-by pred %))
+       (medley/map-vals #(persistent-queue/remove-by pred %))
        clear-empty-queues))
 
 (defn to-seq
