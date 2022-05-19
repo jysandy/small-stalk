@@ -28,7 +28,7 @@
                                  :data     "foobar"}]
         (Thread/sleep 50)
         (queue-service/put q-service job)
-        (is (= job @reserved-job-future))
+        (is (= job (deref reserved-job-future 2000 :deref-timed-out)))
         (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service))))))))
 
 (deftest reserve-test

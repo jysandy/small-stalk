@@ -51,17 +51,6 @@
                       (= connection-id reserved-by))))
        first))
 
-(defn- release-job [current-state connection-id job-id new-priority]
-  (if-let [reserved-job (find-reserved-job current-state
-                                           job-id
-                                           connection-id)]
-    (-> current-state
-        (update :reserved-jobs disj reserved-job)
-        (put-job (-> reserved-job
-                     (dissoc :reserved-by)
-                     (assoc :priority new-priority))))
-    current-state))
-
 (defn- enqueue-reserve [state reserve-mutation]
   (update state :waiting-reserves conj reserve-mutation))
 
@@ -107,46 +96,47 @@
                                                 (:connection-id %))))
       cleanup-reserve-timers))
 
-;; Mutators
 (defn- find-waiting-reserve [state connection-id]
   (->> (:waiting-reserves state)
        (persistent-queue/find-by #(= connection-id
                                      (:connection-id %)))
        first))
 
+(defn- put-ready-job! [state-atom job]
+  (if-let [waiting-reserve (next-waiting-reserve @state-atom)]
+    ;; put needs to immediately deliver the job to a waiting reserve, if present.
+    (do (swap! state-atom #(-> %
+                               (update :waiting-reserves pop)
+                               (reserve-job job (:connection-id waiting-reserve))))
+        (cancel-reserve-timer @state-atom (:connection-id waiting-reserve))
+        (swap! state-atom cleanup-reserve-timers)
+        (deliver (:return-promise waiting-reserve) job))
+    (swap! state-atom add-ready-job job)))
+
+;; Mutators
+
 (defmulti process-mutation (fn [_q-service mutation] (:type mutation)))
 
 (defmethod process-mutation ::put
   [{:keys [state-atom]} {:keys [job return-promise] :as _mutation}]
-  (let [[old-state] (swap-vals! state-atom put-job job)]
-    ;; put needs to immediately deliver the job to a waiting reserve, if present.
-    (when-let [waiting-reserve (next-waiting-reserve old-state)]
-      (cancel-reserve-timer old-state (:connection-id waiting-reserve))
-      (swap! state-atom cleanup-reserve-timers)
-      (deliver (:return-promise waiting-reserve) job))
-    (deliver return-promise job)))
+  (put-ready-job! state-atom job)
+  (deliver return-promise job))
 
 (defmethod process-mutation ::reserve
   [{:keys [state-atom mutation-queue]} {:keys [return-promise connection-id timeout-secs] :as mutation}]
-  (let [[old-state] (swap-vals! state-atom
-                                (fn [state]
-                                  (if-let [ready-job (pqueue/peek (:pqueue state))]
-                                    (-> state
-                                        (reserve-job ready-job connection-id)
-                                        (update :pqueue pqueue/pop))
-                                    (if (= 0 timeout-secs)
-                                      state
-                                      ;; if no job is ready, enqueue the reserve mutation
-                                      ;; until a job is put into the queue.
-                                      (enqueue-reserve state mutation)))))
-        ready-job (pqueue/peek (:pqueue old-state))]
+  (let [ready-job (pqueue/peek (:pqueue @state-atom))]
     (cond
       ;; If a job is ready, return it.
-      (some? ready-job) (deliver return-promise ready-job)
+      (some? ready-job) (do
+                          (swap! state-atom #(-> %
+                                                 (reserve-job ready-job connection-id)
+                                                 (update :pqueue pqueue/pop)))
+                          (deliver return-promise ready-job))
       (= 0 timeout-secs) (deliver return-promise (ssf/fail {:type ::reserve-waiting-timed-out}))
       ;; When a timeout is present, we:
-      ;; 1. launch and register a timer thread which publishes a timeout mutation after the timeout
-      ;; 2. handle the timeout mutation by removing the waiting reserve and sending a timeout error
+      ;; 1. enqueue the reserve
+      ;; 2. launch and register a timer thread which publishes a timeout mutation after the timeout
+      ;; 3. handle the timeout mutation by removing the waiting reserve and sending a timeout error
       ;;    to the client waiting on the reserve.
       ;; The connection ID is sufficient to identify the timed out reserve, because one client
       ;; cannot be blocked on two reserves at once.
@@ -154,55 +144,57 @@
            (< 0 timeout-secs)) (let [timeout-future (launch-reserve-timeout-timer mutation-queue
                                                                                   timeout-secs
                                                                                   connection-id)]
-                                 (swap! state-atom register-reserve-timeout connection-id timeout-future))
-      :else nil)))
+                                 (swap! state-atom #(-> %
+                                                        (enqueue-reserve mutation)
+                                                        (register-reserve-timeout connection-id timeout-future))))
+      ;; Just enqueue the reserve if no timeout is present.
+      :else (swap! state-atom enqueue-reserve mutation))))
 
 (defmethod process-mutation ::reserve-waiting-timed-out
   [{:keys [state-atom]} {:keys [connection-id]}]
   ;; remove the waiting reserve and send a timeout error on the return promise
-  (let [[old-state] (swap-vals! state-atom remove-waiting-reserve connection-id)]
-    (when-let [timed-out-reserve (find-waiting-reserve old-state connection-id)]
-      (deliver (:return-promise timed-out-reserve)
-               (ssf/fail {:type ::reserve-waiting-timed-out})))))
+  (when-let [timed-out-reserve (find-waiting-reserve @state-atom connection-id)]
+    (swap! state-atom remove-waiting-reserve connection-id)
+    (deliver (:return-promise timed-out-reserve)
+             (ssf/fail {:type ::reserve-waiting-timed-out}))))
 
 (defmethod process-mutation ::delete
   [{:keys [state-atom]} {:keys [return-promise job-id connection-id]}]
-  (let [[old-state] (swap-vals! state-atom
-                                (fn [current-state]
-                                  (let [reserved-job-to-delete (find-reserved-job current-state
-                                                                                  job-id
-                                                                                  connection-id)
-                                        ready-job-to-delete    (find-ready-job current-state job-id)]
-                                    (cond
-                                      (some? reserved-job-to-delete) (update current-state
-                                                                             :reserved-jobs
-                                                                             disj
-                                                                             reserved-job-to-delete)
-                                      (some? ready-job-to-delete) (update current-state
-                                                                          :pqueue
-                                                                          (partial pqueue/delete-by
-                                                                                   #(= job-id (:id %))))
-                                      :else current-state))))]
-    (if-let [job-to-delete (or (find-reserved-job old-state
+  (let [reserved-job-to-delete (find-reserved-job @state-atom
                                                   job-id
                                                   connection-id)
-                               (find-ready-job old-state job-id))]
-      (deliver return-promise (dissoc job-to-delete :reserved-by))
-      (deliver return-promise (ssf/fail {:type ::job-not-found})))))
+        ready-job-to-delete    (find-ready-job @state-atom job-id)]
+    (cond
+      (some? reserved-job-to-delete) (do (swap! state-atom
+                                                update
+                                                :reserved-jobs
+                                                disj
+                                                reserved-job-to-delete)
+                                         (deliver return-promise
+                                                  (dissoc reserved-job-to-delete
+                                                          :reserved-by)))
+      (some? ready-job-to-delete) (do (swap! state-atom
+                                             update
+                                             :pqueue
+                                             (partial pqueue/delete-by
+                                                      #(= job-id (:id %))))
+                                      (deliver return-promise
+                                               (dissoc ready-job-to-delete
+                                                       :reserved-by)))
+      :else (deliver return-promise (ssf/fail {:type ::job-not-found})))))
 
 (defmethod process-mutation ::release
   [{:keys [state-atom]} {:keys [connection-id job-id new-priority return-promise] :as _mutation}]
-  (let [[old-state] (swap-vals! state-atom release-job connection-id job-id new-priority)]
-    (if-let [reserved-job (find-reserved-job old-state
-                                             job-id
-                                             connection-id)]
-      (let [released-job (-> reserved-job
-                             (dissoc :reserved-by)
-                             (assoc :priority new-priority))]
-        (do (when-let [waiting-reserve (next-waiting-reserve old-state)]
-              (deliver (:return-promise waiting-reserve) released-job))
-            (deliver return-promise released-job)))
-      (deliver return-promise (ssf/fail {:type ::job-not-found})))))
+  (if-let [reserved-job (find-reserved-job @state-atom
+                                           job-id
+                                           connection-id)]
+    (let [released-job (-> reserved-job
+                           (dissoc :reserved-by)
+                           (assoc :priority new-priority))]
+      (put-ready-job! state-atom released-job)
+      (swap! state-atom update :reserved-jobs disj reserved-job)
+      (deliver return-promise released-job))
+    (deliver return-promise (ssf/fail {:type ::job-not-found}))))
 
 ;; Mutation thread
 (defn start-queue-service [{:keys [mutation-queue state-atom] :as service}]
