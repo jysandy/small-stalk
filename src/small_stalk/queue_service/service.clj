@@ -14,20 +14,6 @@
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)
            (clojure.lang PersistentQueue)))
 
-;; Initial state
-(defmethod ig/init-key ::queue-service
-  [_ _]
-  {:state-atom     (atom {
-                          ;; The priority queue.
-                          :pqueue                 (pqueue/create)
-                          ;; The set of jobs that were reserved, including a reserved-by key in each.
-                          :reserved-jobs          #{}
-                          ;; A queue of waiting reserve mutations.
-                          :waiting-reserves       (PersistentQueue/EMPTY)
-                          ;; A map of connection IDs to reserve timeout futures.
-                          :reserve-timeout-timers {}})
-   :mutation-queue (LinkedBlockingQueue.)})
-
 (defn- add-ready-job [state job]
   (update state :pqueue pqueue/push (:priority job) job))
 
@@ -37,12 +23,6 @@
 (defn- reserve-job [state job connection-id]
   (update state :reserved-jobs conj (assoc job :reserved-by connection-id)))
 
-(defn- put-job [state job]
-  (if-let [waiting-reserve (next-waiting-reserve state)]
-    (-> state
-        (update :waiting-reserves pop)
-        (reserve-job job (:connection-id waiting-reserve)))
-    (add-ready-job state job)))
 
 (defn- find-reserved-job [{:keys [reserved-jobs] :as _current-state} job-id connection-id]
   (->> reserved-jobs
@@ -197,27 +177,45 @@
     (deliver return-promise (ssf/fail {:type ::job-not-found}))))
 
 ;; Mutation thread
-(defn start-queue-service [{:keys [mutation-queue state-atom] :as service}]
-  (vthreads/start-thread
-    (fn []
-      (try
-        (loop []
-          (if (.isInterrupted (Thread/currentThread))
-            (println "Queue service mutation thread interrupted! Shutting it down!")
-            (let [mutation (.take ^BlockingQueue mutation-queue)]
-              (process-mutation service mutation)
-              (recur))))
-        (catch InterruptedException _
-          (println "Queue service mutation thread interrupted! Shutting it down!"))
-        (finally
-          (cancel-all-reserve-timers @state-atom))))))
+(defn start-queue-service []
+  (let [state-atom     (atom {
+                              ;; The priority queue.
+                              :pqueue                 (pqueue/create)
+                              ;; The set of jobs that were reserved, including a reserved-by key in each.
+                              :reserved-jobs          #{}
+                              ;; A queue of waiting reserve mutations.
+                              :waiting-reserves       (PersistentQueue/EMPTY)
+                              ;; A map of connection IDs to reserve timeout futures.
+                              :reserve-timeout-timers {}})
+        mutation-queue (LinkedBlockingQueue.)]
+    {:state-atom
+     state-atom
+     :mutation-queue
+     mutation-queue
+     :mutation-thread
+     (vthreads/start-thread
+       (fn []
+         (try
+           (loop []
+             (if (.isInterrupted (Thread/currentThread))
+               (println "Queue service mutation thread interrupted! Shutting it down!")
+               (let [mutation (.take ^BlockingQueue mutation-queue)]
+                 (process-mutation {:state-atom     state-atom
+                                    :mutation-queue mutation-queue}
+                                   mutation)
+                 (recur))))
+           (catch InterruptedException _
+             (println "Queue service mutation thread interrupted! Shutting it down!"))
+           (finally
+             (cancel-all-reserve-timers @state-atom)))))}))
 
-(defmethod ig/init-key ::mutation-thread
-  [_ {:keys [queue-service]}]
-  (start-queue-service queue-service))
+;; Initial state
+(defmethod ig/init-key ::queue-service
+  [_ _]
+  (start-queue-service))
 
-(defmethod ig/halt-key! ::mutation-thread
-  [_ mutation-thread]
+(defmethod ig/halt-key! ::queue-service
+  [_ {:keys [mutation-thread]}]
   (.interrupt mutation-thread))
 
 ;; API

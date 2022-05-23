@@ -6,7 +6,6 @@
 (def config
   {:small-stalk.queue-service.job/job-id-counter      -1
    :small-stalk.queue-service.service/queue-service   nil
-   :small-stalk.queue-service.service/mutation-thread {:queue-service (ig/ref :small-stalk.queue-service.service/queue-service)}
    :small-stalk.commands.handlers/command-handler     {:queue-service  (ig/ref :small-stalk.queue-service.service/queue-service)
                                                        :job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)}
    :small-stalk.server.connection/connection-registry nil

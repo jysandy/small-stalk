@@ -7,7 +7,7 @@
 
 (deftest put-test
   (testing "when there are no pending reserves"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service    (system/get system ::queue-service/queue-service)
             job          {:id       0
                           :priority 2
@@ -20,7 +20,7 @@
                (queue-service/peek-ready q-service))))))
 
   (testing "when there is a pending reserve"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service           (system/get system ::queue-service/queue-service)
             reserved-job-future (vthreads/future (queue-service/reserve q-service 69))
             job                 {:id       5
@@ -34,7 +34,7 @@
 (deftest reserve-test
   (testing "without a timeout"
     (testing "when a job is ready"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service    (system/get system ::queue-service/queue-service)
               job          {:id       5
                             :priority 2
@@ -46,7 +46,7 @@
           (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))
 
     (testing "when no job is ready"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service (system/get system ::queue-service/queue-service)
               _         (vthreads/future (queue-service/reserve q-service 69))]
           (Thread/sleep 50)
@@ -54,7 +54,7 @@
 
   (testing "with a timeout"
     (testing "when no job is received within the timeout period"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service      (system/get system ::queue-service/queue-service)
               reserve-future (vthreads/future (queue-service/reserve q-service 69 1))]
           (is (= (ssf/fail {:type ::queue-service/reserve-waiting-timed-out})
@@ -62,7 +62,7 @@
           (is (empty? (:reserve-timeout-timers @(:state-atom q-service)))))))
 
     (testing "when a job is received before the reserve times out"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service      (system/get system ::queue-service/queue-service)
               reserve-future (vthreads/future
                                (queue-service/reserve q-service 69 1))
@@ -76,7 +76,7 @@
 
     (testing "when the timeout is zero"
       (testing "when a job is ready"
-        (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+        (with-open [system (system/open-system! [::queue-service/queue-service])]
           (let [q-service    (system/get system ::queue-service/queue-service)
                 job          {:id       5
                               :priority 2
@@ -88,7 +88,7 @@
             (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))
 
       (testing "when no job is ready"
-        (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+        (with-open [system (system/open-system! [::queue-service/queue-service])]
           (let [q-service      (system/get system ::queue-service/queue-service)
                 reserve-future (vthreads/future (queue-service/reserve q-service 69 0))]
             (is (= (ssf/fail {:type ::queue-service/reserve-waiting-timed-out})
@@ -97,7 +97,7 @@
 
 (deftest delete-test
   (testing "when the current connection has reserved the job"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)
             job       {:id       5
                        :priority 2
@@ -108,7 +108,7 @@
         (is (empty? (:reserved-jobs @(:state-atom q-service)))))))
 
   (testing "when the job was reserved by a different connection"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)
             job       {:id       5
                        :priority 2
@@ -119,7 +119,7 @@
         (is (= #{(assoc job :reserved-by 69)} (:reserved-jobs @(:state-atom q-service)))))))
 
   (testing "when the job is in the ready queue"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)
             job       {:id       5
                        :priority 2
@@ -129,14 +129,14 @@
         (is (nil? (queue-service/peek-ready q-service))))))
 
   (testing "when a job with the given ID is not present"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)]
         (is (= (ssf/fail {:type ::queue-service/job-not-found}) (queue-service/delete q-service 42 5)))))))
 
 (deftest release-test
   (testing "when the current connection has reserved the job"
     (testing "when there are no pending reserves"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service (system/get system ::queue-service/queue-service)
               job       {:id       5
                          :priority 2
@@ -154,7 +154,7 @@
                  (queue-service/peek-ready q-service))))))
 
     (testing "when there is a pending reserve"
-      (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+      (with-open [system (system/open-system! [::queue-service/queue-service])]
         (let [q-service (system/get system ::queue-service/queue-service)
               job       {:id       5
                          :priority 2
@@ -175,7 +175,7 @@
           (is (nil? (queue-service/peek-ready q-service)))))))
 
   (testing "when the job was reserved by a different connection"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)
             job       {:id       5
                        :priority 2
@@ -192,7 +192,7 @@
         (is (nil? (queue-service/peek-ready q-service))))))
 
   (testing "when the job with the given ID doesn't exist in the reserve set"
-    (with-open [system (system/open-system! [::queue-service/mutation-thread])]
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)
             job       {:id       5
                        :priority 2
