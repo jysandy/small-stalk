@@ -93,7 +93,26 @@
                 reserve-future (vthreads/future (queue-service/reserve q-service 69 0))]
             (is (= (ssf/fail {:type ::queue-service/reserve-waiting-timed-out})
                    (deref reserve-future 3000 :deref-timed-out)))
-            (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service))))))))))
+            (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))))
+
+  (testing "when the job has a time to run"
+    (with-open [system (system/open-system! [::queue-service/queue-service])]
+      (let [q-service      (system/get system ::queue-service/queue-service)
+            reserve-future (vthreads/future
+                             (queue-service/reserve q-service 69 1))
+            job            {:id               5
+                            :priority         2
+                            :data             "foobar"
+                            :time-to-run-secs 1}]
+        (queue-service/put q-service job)
+        (is (= job
+               (deref reserve-future 2000 :deref-timed-out)))
+        (is (empty? (:reserve-timeout-timers @(:state-atom q-service))))
+        (is (seq (:time-to-run-timers @(:state-atom q-service))))
+        (is (nil? (queue-service/peek-ready q-service)))
+        (Thread/sleep 1010)
+        (is (= job
+               (queue-service/peek-ready q-service)))))))
 
 (deftest delete-test
   (testing "when the current connection has reserved the job"

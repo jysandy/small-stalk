@@ -9,12 +9,14 @@
                       :name ::parsing/unknown-command})
            (parsing/parse-command ["foo" "2"]))))
   (testing "Parsing put"
-    (is (= {:command-name "put"
-            :priority     2}
-           (parsing/parse-command ["put" "2"])))
-    (is (= (= {:command-name "put"
-               :priority     5}
-              (parsing/parse-command ["put" "5"]))))))
+    (is (= {:command-name     "put"
+            :priority         2
+            :time-to-run-secs 5}
+           (parsing/parse-command ["put" "2" "5"])))
+    (is (= (= {:command-name     "put"
+               :priority         5
+               :time-to-run-secs 6}
+              (parsing/parse-command ["put" "5" "6"]))))))
 
 (deftest parse-args-test
   (testing "Parsing valid input against a grammar"

@@ -39,11 +39,11 @@
                    ssf/first-failure
                    (into {}))))
 
-(def all-grammars {"put"        [[:priority ::non-negative-number]]
-                   "peek-ready" []
-                   "reserve"    []
-                   "delete"     [[:job-id ::non-negative-number]]
-                   "release"    [[:job-id ::non-negative-number] [:new-priority ::non-negative-number]]
+(def all-grammars {"put"                  [[:priority ::non-negative-number] [:time-to-run-secs ::non-negative-number]]
+                   "peek-ready"           []
+                   "reserve"              []
+                   "delete"               [[:job-id ::non-negative-number]]
+                   "release"              [[:job-id ::non-negative-number] [:new-priority ::non-negative-number]]
                    "reserve-with-timeout" [[:timeout-secs ::non-negative-number]]})
 
 (defn parse-command [[command-name & arg-tokens :as _tokens]]

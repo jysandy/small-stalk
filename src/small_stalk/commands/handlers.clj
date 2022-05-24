@@ -10,11 +10,11 @@
                            (:command-name command)))
 
 (defmethod handle-command "put"
-  [queue-service job-id-counter {:keys [priority]} _connection-id input-stream output-stream]
+  [queue-service job-id-counter {:keys [priority time-to-run-secs]} _connection-id input-stream output-stream]
   (f/attempt-all [data (f/ok-> (ssio/read-string-until-crlf input-stream)
                                string/trim)
                   job  (queue-service/put queue-service
-                                          (job/make-job job-id-counter priority data))]
+                                          (job/make-job job-id-counter priority data time-to-run-secs))]
     (ssio/write-crlf-string output-stream (str "INSERTED " (:id job)))))
 
 (defmethod handle-command "reserve"

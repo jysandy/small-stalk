@@ -11,26 +11,26 @@
 
 (deftest handle-put-command-test
   (testing "when a valid command is sent"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes "foobar\r\n"))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)]
-        (handle-command {:command-name "put"
-                         :priority     2}
+        (handle-command {:command-name     "put"
+                         :priority         2
+                         :time-to-run-secs 5}
                         69
                         in-stream
                         out-stream)
         (is (= "INSERTED 0\r\n" (.toString out-stream "US-ASCII"))))))
 
   (testing "when the data ends without a CRLF"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes "foobar"))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            error          (handle-command {:command-name "put"
-                                            :priority     2}
+            error          (handle-command {:command-name     "put"
+                                            :priority         2
+                                            :time-to-run-secs 5}
                                            69
                                            in-stream
                                            out-stream)]
@@ -41,8 +41,7 @@
 
 (deftest handle-peek-ready-command-test
   (testing "when a job is available"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
@@ -57,8 +56,7 @@
         (is (= "FOUND 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
 
   (testing "when no job is ready"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)]
@@ -69,8 +67,7 @@
         (is (= "NOT_FOUND\r\n" (.toString out-stream "US-ASCII")))))))
 
 (deftest handle-reserve-command-test
-  (with-open [system     (system/open-system! [::handlers/command-handler
-                                               ::queue-service/mutation-thread])
+  (with-open [system     (system/open-system! [::handlers/command-handler])
               in-stream  (io/input-stream (.getBytes ""))
               out-stream (ByteArrayOutputStream.)]
     (let [handle-command (system/get system ::handlers/command-handler)
@@ -86,8 +83,7 @@
 
 (deftest handle-reserve-with-timeout-command-test
   (testing "when a job was found"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
@@ -103,8 +99,7 @@
         (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
 
   (testing "when the reserve times out"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)]
@@ -117,8 +112,7 @@
 
 (deftest handle-delete-command-test
   (testing "when the job was found"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
@@ -135,8 +129,7 @@
         (is (= "DELETED\r\n" (.toString out-stream "US-ASCII"))))))
 
   (testing "when the job was not found"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)]
@@ -149,8 +142,7 @@
 
 (deftest handle-release-command-test
   (testing "when the job was found"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
@@ -168,8 +160,7 @@
         (is (= "RELEASED\r\n" (.toString out-stream "US-ASCII"))))))
 
   (testing "when the job was not found"
-    (with-open [system     (system/open-system! [::handlers/command-handler
-                                                 ::queue-service/mutation-thread])
+    (with-open [system     (system/open-system! [::handlers/command-handler])
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)]

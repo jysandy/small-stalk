@@ -17,7 +17,10 @@
     (f/when-failed [e]
       (cond
         (instance? Exception e)
-        (ssio/write-crlf-string output-stream "INTERNAL_ERROR")
+        (do
+          (println "Uncaught exception! " (ex-message e))
+          (.printStackTrace e)
+          (ssio/write-crlf-string output-stream "INTERNAL_ERROR"))
 
         (#{::ssio/output-stream-closed ::ssio/eof-reached} (:type e))
         nil
