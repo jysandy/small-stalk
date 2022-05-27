@@ -67,9 +67,12 @@
 (defn- find-ready-job [{:keys [pqueue] :as _current-state} job-id]
   (first (pqueue/find-by #(= job-id (:id %)) pqueue)))
 
-(defn- cancel-all-reserve-timers
+(defn- cancel-all-timers
   [state]
-  (map future-cancel (vals (:reserve-timeout-timers state))))
+  (doseq [timer (vals (:reserve-timeout-timers state))]
+    (future-cancel timer))
+  (doseq [timer (vals (:time-to-run-timers state))]
+    (future-cancel timer)))
 
 (defn- register-reserve-timeout [state connection-id reserve-timeout-future]
   (-> state
@@ -247,7 +250,7 @@
            (catch InterruptedException _
              (println "Queue service mutation thread interrupted! Shutting it down!"))
            (finally
-             (cancel-all-reserve-timers @state-atom)))))}))
+             (cancel-all-timers @state-atom)))))}))
 
 ;; Initial state
 (defmethod ig/init-key ::queue-service
