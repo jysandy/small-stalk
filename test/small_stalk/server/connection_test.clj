@@ -1,7 +1,7 @@
 (ns small-stalk.server.connection-test
   (:require [clojure.test :refer :all]
-            [small-stalk.system :as system]
-            [small-stalk.server.connection :as connection])
+            [small-stalk.server.connection :as connection]
+            [small-stalk.test-helpers :as test-helpers])
   (:import (java.net Socket)))
 
 (defn- fake-socket []
@@ -11,7 +11,7 @@
       (close [] (reset! closed true)))))
 
 (deftest register-connection-test
-  (with-open [system-closeable (system/open-system! [::connection/connection-registry])]
+  (with-open [system-closeable (test-helpers/open-system! [::connection/connection-registry])]
     (let [connection-registry (::connection/connection-registry (:system system-closeable))
           connection-id-1     (connection/register-connection! connection-registry "foobar")
           connection-id-2     (connection/register-connection! connection-registry "baz")]
@@ -20,7 +20,7 @@
              (:connections @connection-registry))))))
 
 (deftest remove-connection-test
-  (with-open [system-closeable (system/open-system! [::connection/connection-registry])]
+  (with-open [system-closeable (test-helpers/open-system! [::connection/connection-registry])]
     (let [connection-registry (::connection/connection-registry (:system system-closeable))
           connection-id-1     (connection/register-connection! connection-registry "foobar")
           a-socket            (fake-socket)
@@ -31,7 +31,7 @@
       (is (.isClosed a-socket)))))
 
 (deftest remove-all-connections-test
-  (with-open [system-closeable (system/open-system! [::connection/connection-registry])]
+  (with-open [system-closeable (test-helpers/open-system! [::connection/connection-registry])]
     (let [connection-registry (::connection/connection-registry (:system system-closeable))
           socket-1            (fake-socket)
           socket-2            (fake-socket)]

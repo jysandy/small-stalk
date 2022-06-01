@@ -5,7 +5,9 @@
 
 (def config
   {:small-stalk.queue-service.job/job-id-counter      -1
-   :small-stalk.queue-service.service/queue-service   nil
+   :small-stalk.queue-service.service/aof-file        {:file-path "aof.edn"}
+   :small-stalk.queue-service.service/queue-service   {:job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)
+                                                       :aof-file       (ig/ref :small-stalk.queue-service.service/aof-file)}
    :small-stalk.commands.handlers/command-handler     {:queue-service  (ig/ref :small-stalk.queue-service.service/queue-service)
                                                        :job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)}
    :small-stalk.server.connection/connection-registry nil
@@ -31,11 +33,11 @@
 
 (defn open-system!
   "Opens and returns the system as a Closeable. It can be opened in with-open. Useful for tests."
-  ([]
+  ([config]
    (ig/load-namespaces config)
    (let [system (ig/init config)]
      (IntegrantSystem. system)))
-  ([keys]
+  ([config keys]
    (ig/load-namespaces config)
    (let [system (ig/init config keys)]
      (IntegrantSystem. system))))

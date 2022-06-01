@@ -10,12 +10,32 @@
             [integrant.core :as ig]
             [small-stalk.failure :as ssf]
             [medley.core :as medley]
-            [small-stalk.queue-service.persistent-queue :as persistent-queue])
+            [small-stalk.queue-service.persistent-queue :as persistent-queue]
+            [clojure.java.io :as io]
+            [clojure.edn :as edn])
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)
-           (clojure.lang PersistentQueue)))
+           (clojure.lang PersistentQueue)
+           (java.io Writer)))
+
+;; Are we in replay mode?
+;; Rebound with binding. Since var bindings are thread-local,
+;; this state will not be shared between different queue services
+;; because their mutation threads are different.
+(def ^:dynamic replay-mode? false)
+
+(defmacro live-mode-only
+  "Marks code that should not be run during replay mode."
+  [& body]
+  `(if (not replay-mode?)
+     (do ~@body)
+     nil))
+
+(defn deliver-if-live [promise val]
+  (live-mode-only (deliver promise val)))
 
 (defn- enqueue-mutation [^BlockingQueue mutation-queue mutation]
-  (.put mutation-queue mutation))
+  (live-mode-only
+    (.put mutation-queue mutation)))
 
 (defn- add-ready-job [state job]
   (update state :pqueue pqueue/push (:priority job) job))
@@ -24,12 +44,13 @@
   (clojure.core/peek waiting-reserves))
 
 (defn- launch-time-to-run-timer [mutation-queue time-to-run-secs job-id]
-  (vthreads/schedule
-    (* 1000 time-to-run-secs)
-    (fn []
-      (enqueue-mutation mutation-queue
-                        {:type   ::time-to-run-expired
-                         :job-id job-id}))))
+  (live-mode-only
+    (vthreads/schedule
+      (* 1000 time-to-run-secs)
+      (fn []
+        (enqueue-mutation mutation-queue
+                          {:type   ::time-to-run-expired
+                           :job-id job-id})))))
 
 (defn- cleanup-timers
   "Throw away the finished timers that we don't need anymore."
@@ -38,16 +59,31 @@
       (update :reserve-timeout-timers (partial medley/remove-vals future-done?))
       (update :time-to-run-timers (partial medley/remove-vals future-done?))))
 
-(defn- register-time-to-run-timer [state job-id time-to-run-future]
-  (-> state
-      cleanup-timers
-      (update :time-to-run-timers assoc job-id time-to-run-future)))
+(defn- register-time-to-run-timer! [state-atom job-id time-to-run-future]
+  (live-mode-only
+    (swap! state-atom #(-> %
+                           cleanup-timers
+                           (update :time-to-run-timers assoc job-id time-to-run-future)))))
 
 (defn- reserve-job! [state-atom mutation-queue {:keys [time-to-run-secs id] :as job} connection-id]
   (when (some? time-to-run-secs)
     (let [timer-future (launch-time-to-run-timer mutation-queue time-to-run-secs id)]
-      (swap! state-atom register-time-to-run-timer id timer-future)))
+      (register-time-to-run-timer! state-atom id timer-future)))
   (swap! state-atom update :reserved-jobs conj (assoc job :reserved-by connection-id)))
+
+(defn- cleanup-after-replay! [state-atom]
+  (swap! state-atom (fn [{:keys [pqueue reserved-jobs] :as state}]
+                      (-> state
+                          ;; Dump all the reserved jobs back into the ready queue.
+                          (assoc :pqueue (reduce (fn [pqueue job]
+                                                   (pqueue/push pqueue
+                                                                (:priority job)
+                                                                (dissoc job :reserved-by)))
+                                                 pqueue
+                                                 reserved-jobs))
+                          (assoc :reserved-jobs #{})
+                          ;; Get rid of any waiting reserves.
+                          (assoc :waiting-reserves (PersistentQueue/EMPTY))))))
 
 (defn- find-reserved-job
   ([current-state job-id]
@@ -74,25 +110,28 @@
   (doseq [timer (vals (:time-to-run-timers state))]
     (future-cancel timer)))
 
-(defn- register-reserve-timeout [state connection-id reserve-timeout-future]
-  (-> state
-      cleanup-timers
-      (update :reserve-timeout-timers assoc connection-id reserve-timeout-future)))
+(defn- register-reserve-timeout! [state-atom connection-id reserve-timeout-future]
+  (live-mode-only
+    (swap! state-atom #(-> %
+                           cleanup-timers
+                           (update :reserve-timeout-timers assoc connection-id reserve-timeout-future)))))
 
 (defn- cancel-reserve-timer!
   [state-atom connection-id]
-  (when-let [reserve-timer (get (:reserve-timeout-timers @state-atom)
-                                connection-id)]
-    (future-cancel reserve-timer)
-    (swap! state-atom cleanup-timers)))
+  (live-mode-only
+    (when-let [reserve-timer (get (:reserve-timeout-timers @state-atom)
+                                  connection-id)]
+      (future-cancel reserve-timer)
+      (swap! state-atom cleanup-timers))))
 
 (defn- launch-reserve-timeout-timer [mutation-queue timeout-secs connection-id]
-  (vthreads/schedule
-    (* 1000 timeout-secs)
-    (fn []
-      (enqueue-mutation mutation-queue
-                        {:type          ::reserve-waiting-timed-out
-                         :connection-id connection-id}))))
+  (live-mode-only
+    (vthreads/schedule
+      (* 1000 timeout-secs)
+      (fn []
+        (enqueue-mutation mutation-queue
+                          {:type          ::reserve-waiting-timed-out
+                           :connection-id connection-id})))))
 
 (defn- remove-waiting-reserve [state connection-id]
   (-> state
@@ -127,8 +166,12 @@
   (if-let [waiting-reserve (take-waiting-reserve! state-atom)]
     ;; put needs to immediately deliver the job to a waiting reserve, if present.
     (do (reserve-job! state-atom mutation-queue job (:connection-id waiting-reserve))
-        (deliver (:return-promise waiting-reserve) job))
+        (deliver-if-live (:return-promise waiting-reserve) job))
     (swap! state-atom add-ready-job job)))
+
+(defn- largest-job-id [jobs]
+  (when (seq jobs)
+    (apply max (map :id jobs))))
 
 ;; Mutators
 
@@ -137,7 +180,7 @@
 (defmethod process-mutation ::put
   [{:keys [state-atom mutation-queue]} {:keys [job return-promise] :as _mutation}]
   (put-ready-job! state-atom mutation-queue job)
-  (deliver return-promise job))
+  (deliver-if-live return-promise job))
 
 (defmethod process-mutation ::reserve
   [{:keys [state-atom mutation-queue]} {:keys [return-promise connection-id timeout-secs] :as mutation}]
@@ -145,8 +188,8 @@
     (cond
       ;; If a job is ready, return it.
       (some? ready-job) (do (reserve-job! state-atom mutation-queue ready-job connection-id)
-                            (deliver return-promise ready-job))
-      (= 0 timeout-secs) (deliver return-promise (ssf/fail {:type ::reserve-waiting-timed-out}))
+                            (deliver-if-live return-promise ready-job))
+      (= 0 timeout-secs) (deliver-if-live return-promise (ssf/fail {:type ::reserve-waiting-timed-out}))
       ;; When a timeout is present, we:
       ;; 1. enqueue the reserve
       ;; 2. launch and register a timer thread which publishes a timeout mutation after the timeout
@@ -155,12 +198,12 @@
       ;; The connection ID is sufficient to identify the timed out reserve, because one client
       ;; cannot be blocked on two reserves at once.
       (and (some? timeout-secs)
-           (< 0 timeout-secs)) (let [timeout-future (launch-reserve-timeout-timer mutation-queue
-                                                                                  timeout-secs
-                                                                                  connection-id)]
-                                 (swap! state-atom #(-> %
-                                                        (enqueue-reserve mutation)
-                                                        (register-reserve-timeout connection-id timeout-future))))
+           (< 0 timeout-secs)) (let [timeout-future (live-mode-only
+                                                      (launch-reserve-timeout-timer mutation-queue
+                                                                                    timeout-secs
+                                                                                    connection-id))]
+                                 (swap! state-atom enqueue-reserve mutation)
+                                 (register-reserve-timeout! state-atom connection-id timeout-future))
       ;; Just enqueue the reserve if no timeout is present.
       :else (swap! state-atom enqueue-reserve mutation))))
 
@@ -169,8 +212,8 @@
   ;; remove the waiting reserve and send a timeout error on the return promise
   (when-let [timed-out-reserve (find-waiting-reserve @state-atom connection-id)]
     (swap! state-atom remove-waiting-reserve connection-id)
-    (deliver (:return-promise timed-out-reserve)
-             (ssf/fail {:type ::reserve-waiting-timed-out}))))
+    (deliver-if-live (:return-promise timed-out-reserve)
+                     (ssf/fail {:type ::reserve-waiting-timed-out}))))
 
 (defmethod process-mutation ::time-to-run-expired
   [{:keys [state-atom mutation-queue]} {:keys [job-id]}]
@@ -191,18 +234,18 @@
                                                 :reserved-jobs
                                                 disj
                                                 reserved-job-to-delete)
-                                         (deliver return-promise
-                                                  (dissoc reserved-job-to-delete
-                                                          :reserved-by)))
+                                         (deliver-if-live return-promise
+                                                          (dissoc reserved-job-to-delete
+                                                                  :reserved-by)))
       (some? ready-job-to-delete) (do (swap! state-atom
                                              update
                                              :pqueue
                                              (partial pqueue/delete-by
                                                       #(= job-id (:id %))))
-                                      (deliver return-promise
-                                               (dissoc ready-job-to-delete
-                                                       :reserved-by)))
-      :else (deliver return-promise (ssf/fail {:type ::job-not-found})))))
+                                      (deliver-if-live return-promise
+                                                       (dissoc ready-job-to-delete
+                                                               :reserved-by)))
+      :else (deliver-if-live return-promise (ssf/fail {:type ::job-not-found})))))
 
 (defmethod process-mutation ::release
   [{:keys [state-atom mutation-queue]} {:keys [connection-id job-id new-priority return-promise] :as _mutation}]
@@ -214,11 +257,59 @@
                            (assoc :priority new-priority))]
       (put-ready-job! state-atom mutation-queue released-job)
       (swap! state-atom update :reserved-jobs disj reserved-job)
-      (deliver return-promise released-job))
-    (deliver return-promise (ssf/fail {:type ::job-not-found}))))
+      (deliver-if-live return-promise released-job))
+    (deliver-if-live return-promise (ssf/fail {:type ::job-not-found}))))
+
+;; AOF persistence
+(defmethod ig/init-key ::aof-file
+  [_ {:keys [file-path]}]
+  (io/file file-path))
+
+(defn- write-to-aof [^Writer aof-writer mutation]
+  (.write aof-writer (str (dissoc mutation :return-promise) "\n"))
+  (.flush aof-writer))
+
+(defn- read-mutations-from-aof [aof-file]
+  (with-open [reader (io/reader aof-file)]
+    (doall (map edn/read-string (line-seq reader)))))
+
+(defn- replay-from-aof! [state-atom job-id-counter aof-file]
+  (let [mutations (read-mutations-from-aof aof-file)]
+    (binding [replay-mode? true]
+      (doseq [mutation mutations]
+        (process-mutation {:state-atom     state-atom
+                           :mutation-queue nil}
+                          mutation)))
+    (cleanup-after-replay! state-atom)
+
+    ;; So that we don't have ID collisions.
+    (reset! job-id-counter (or (largest-job-id (->> mutations
+                                                    (filter #(= ::put (:type %)))
+                                                    (map :job)))
+                               -1))))
 
 ;; Mutation thread
-(defn start-queue-service []
+(defn start-mutation-thread [state-atom mutation-queue aof-file]
+  (vthreads/start-thread
+    (fn []
+      (try
+        (with-open [aof-writer (io/writer aof-file :append true)]
+          (loop []
+            (if (.isInterrupted (Thread/currentThread))
+              (println "Queue service mutation thread interrupted! Shutting it down!")
+              (let [mutation (.take ^BlockingQueue mutation-queue)]
+                (write-to-aof aof-writer mutation)
+                (process-mutation {:state-atom     state-atom
+                                   :mutation-queue mutation-queue}
+                                  mutation)
+                (recur)))))
+        (catch InterruptedException _
+          (println "Queue service mutation thread interrupted! Shutting it down!"))
+        (finally
+          (cancel-all-timers @state-atom))))))
+
+;; Initial state
+(defn start-queue-service [job-id-counter aof-file]
   (let [state-atom     (atom {
                               ;; The priority queue.
                               :pqueue                 (pqueue/create)
@@ -231,31 +322,17 @@
                               ;; A map of job IDs to TTR timeout futures.
                               :time-to-run-timers     {}})
         mutation-queue (LinkedBlockingQueue.)]
+    (replay-from-aof! state-atom job-id-counter aof-file)
     {:state-atom
      state-atom
      :mutation-queue
      mutation-queue
      :mutation-thread
-     (vthreads/start-thread
-       (fn []
-         (try
-           (loop []
-             (if (.isInterrupted (Thread/currentThread))
-               (println "Queue service mutation thread interrupted! Shutting it down!")
-               (let [mutation (.take ^BlockingQueue mutation-queue)]
-                 (process-mutation {:state-atom     state-atom
-                                    :mutation-queue mutation-queue}
-                                   mutation)
-                 (recur))))
-           (catch InterruptedException _
-             (println "Queue service mutation thread interrupted! Shutting it down!"))
-           (finally
-             (cancel-all-timers @state-atom)))))}))
+     (start-mutation-thread state-atom mutation-queue aof-file)}))
 
-;; Initial state
 (defmethod ig/init-key ::queue-service
-  [_ _]
-  (start-queue-service))
+  [_ {:keys [job-id-counter aof-file]}]
+  (start-queue-service job-id-counter aof-file))
 
 (defmethod ig/halt-key! ::queue-service
   [_ {:keys [mutation-thread]}]
