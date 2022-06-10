@@ -5,9 +5,10 @@
 
 (def config
   {:small-stalk.queue-service.job/job-id-counter      -1
-   :small-stalk.queue-service.service/aof-file        {:file-path "aof.edn"}
-   :small-stalk.queue-service.service/queue-service   {:job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)
-                                                       :aof-file       (ig/ref :small-stalk.queue-service.service/aof-file)}
+   :small-stalk.queue-service.service/append-only-log {:file-path        "data-dir"
+                                                       :entries-per-file 5}
+   :small-stalk.queue-service.service/queue-service   {:job-id-counter  (ig/ref :small-stalk.queue-service.job/job-id-counter)
+                                                       :append-only-log (ig/ref :small-stalk.queue-service.service/append-only-log)}
    :small-stalk.commands.handlers/command-handler     {:queue-service  (ig/ref :small-stalk.queue-service.service/queue-service)
                                                        :job-id-counter (ig/ref :small-stalk.queue-service.job/job-id-counter)}
    :small-stalk.server.connection/connection-registry nil

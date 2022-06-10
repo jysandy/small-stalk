@@ -1,31 +1,22 @@
 (ns small-stalk.test-helpers
   (:require [clojure.test :refer :all]
-            [clojure.java.io :as io]
             [small-stalk.system :as system]
-            [integrant.core :as ig])
-  (:import (java.io StringReader StringWriter BufferedReader)))
+            [small-stalk.persistence.append-only-log.string :as aol-string]
+            [integrant.core :as ig]
+            [small-stalk.persistence.append-only-log :as aol]))
 
-;; Masquerades as a java.io.File, but reading to / writing from it using strings.
-(defrecord FakeFile [string-reader string-writer]
-  io/IOFactory
-  (make-writer [this _] (:string-writer this))
-  (make-reader [this _] (:string-reader this)))
+(defn written-contents [append-only-log]
+  (aol/entry-seq (aol/new-reader append-only-log)))
 
-(defn make-fake-file [fake-content-string]
-  (->FakeFile (BufferedReader. (StringReader. fake-content-string)) (StringWriter.)))
-
-(defn written-contents [fake-aof-file]
-  (.toString (:string-writer fake-aof-file)))
-
-(derive ::fake-aof-file :small-stalk.queue-service.service/aof-file)
+(derive ::string-append-only-log :small-stalk.queue-service.service/append-only-log)
 
 (def test-config (-> system/config
-                     (dissoc :small-stalk.queue-service.service/aof-file)
-                     (assoc ::fake-aof-file "")))
+                     (dissoc :small-stalk.queue-service.service/append-only-log)
+                     (assoc ::string-append-only-log "")))
 
-(defmethod ig/init-key ::fake-aof-file
+(defmethod ig/init-key ::string-append-only-log
   [_ fake-string]
-  (make-fake-file fake-string))
+  (aol-string/string-append-only-log fake-string))
 
 (defn open-system!
   ([]
@@ -35,5 +26,5 @@
 
 (defn open-system-with-aof-contents!
   [keys aof-contents]
-  (system/open-system! (assoc test-config ::fake-aof-file aof-contents)
+  (system/open-system! (assoc test-config ::string-append-only-log aof-contents)
                        keys))

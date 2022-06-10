@@ -250,7 +250,7 @@
           (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                    [::queue-service/queue-service]
                                    (-> old-system
-                                       (system/get ::test-helpers/fake-aof-file)
+                                       (system/get ::test-helpers/string-append-only-log)
                                        test-helpers/written-contents))]
             (is (= old-queue-state
                    (-> new-system
@@ -280,7 +280,7 @@
         (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                  [::queue-service/queue-service]
                                  (-> old-system
-                                     (system/get ::test-helpers/fake-aof-file)
+                                     (system/get ::test-helpers/string-append-only-log)
                                      test-helpers/written-contents))]
           (is (= [[2 {:id       7
                       :priority 2
@@ -316,7 +316,7 @@
         (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                  [::queue-service/queue-service]
                                  (-> old-system
-                                     (system/get ::test-helpers/fake-aof-file)
+                                     (system/get ::test-helpers/string-append-only-log)
                                      test-helpers/written-contents))]
           (is (= (pqueue/create)
                  (-> new-system

@@ -11,11 +11,10 @@
             [small-stalk.failure :as ssf]
             [medley.core :as medley]
             [small-stalk.queue-service.persistent-queue :as persistent-queue]
-            [clojure.java.io :as io]
-            [clojure.edn :as edn])
+            [small-stalk.persistence.append-only-log :as aol]
+            [small-stalk.persistence.append-only-log.filesystem :as aol-filesystem])
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)
-           (clojure.lang PersistentQueue)
-           (java.io Writer)))
+           (clojure.lang PersistentQueue)))
 
 ;; Are we in replay mode?
 ;; Rebound with binding. Since var bindings are thread-local,
@@ -261,20 +260,23 @@
     (deliver-if-live return-promise (ssf/fail {:type ::job-not-found}))))
 
 ;; AOF persistence
-(defmethod ig/init-key ::aof-file
-  [_ {:keys [file-path]}]
-  (io/file file-path))
+(defmethod ig/init-key ::append-only-log
+  [_ {:keys [file-path entries-per-file]}]
+  (aol-filesystem/filesystem-append-only-log file-path entries-per-file))
 
-(defn- write-to-aof [^Writer aof-writer mutation]
-  (.write aof-writer (str (dissoc mutation :return-promise) "\n"))
-  (.flush aof-writer))
+(defmethod ig/halt-key! ::append-only-log
+  [_ log]
+  (aol/close log))
 
-(defn- read-mutations-from-aof [aof-file]
-  (with-open [reader (io/reader aof-file)]
-    (doall (map edn/read-string (line-seq reader)))))
+(defn- write-to-log [append-only-log mutation]
+  (aol/write-entry append-only-log (dissoc mutation :return-promise)))
 
-(defn- replay-from-aof! [state-atom job-id-counter aof-file]
-  (let [mutations (read-mutations-from-aof aof-file)]
+(defn- read-mutations-from-log [aof-file]
+  (with-open [reader (aol/new-reader aof-file)]
+    (doall (aol/entry-seq reader))))
+
+(defn- replay-from-aof! [state-atom job-id-counter append-only-log]
+  (let [mutations (read-mutations-from-log append-only-log)]
     (binding [replay-mode? true]
       (doseq [mutation mutations]
         (process-mutation {:state-atom     state-atom
@@ -289,27 +291,26 @@
                                -1))))
 
 ;; Mutation thread
-(defn start-mutation-thread [state-atom mutation-queue aof-file]
+(defn start-mutation-thread [state-atom mutation-queue append-only-log]
   (vthreads/start-thread
     (fn []
       (try
-        (with-open [aof-writer (io/writer aof-file :append true)]
-          (loop []
-            (if (.isInterrupted (Thread/currentThread))
-              (println "Queue service mutation thread interrupted! Shutting it down!")
-              (let [mutation (.take ^BlockingQueue mutation-queue)]
-                (write-to-aof aof-writer mutation)
-                (process-mutation {:state-atom     state-atom
-                                   :mutation-queue mutation-queue}
-                                  mutation)
-                (recur)))))
+        (loop []
+          (if (.isInterrupted (Thread/currentThread))
+            (println "Queue service mutation thread interrupted! Shutting it down!")
+            (let [mutation (.take ^BlockingQueue mutation-queue)]
+              (write-to-log append-only-log mutation)
+              (process-mutation {:state-atom     state-atom
+                                 :mutation-queue mutation-queue}
+                                mutation)
+              (recur))))
         (catch InterruptedException _
           (println "Queue service mutation thread interrupted! Shutting it down!"))
         (finally
           (cancel-all-timers @state-atom))))))
 
 ;; Initial state
-(defn start-queue-service [job-id-counter aof-file]
+(defn start-queue-service [job-id-counter append-only-log]
   (let [state-atom     (atom {
                               ;; The priority queue.
                               :pqueue                 (pqueue/create)
@@ -322,17 +323,17 @@
                               ;; A map of job IDs to TTR timeout futures.
                               :time-to-run-timers     {}})
         mutation-queue (LinkedBlockingQueue.)]
-    (replay-from-aof! state-atom job-id-counter aof-file)
+    (replay-from-aof! state-atom job-id-counter append-only-log)
     {:state-atom
      state-atom
      :mutation-queue
      mutation-queue
      :mutation-thread
-     (start-mutation-thread state-atom mutation-queue aof-file)}))
+     (start-mutation-thread state-atom mutation-queue append-only-log)}))
 
 (defmethod ig/init-key ::queue-service
-  [_ {:keys [job-id-counter aof-file]}]
-  (start-queue-service job-id-counter aof-file))
+  [_ {:keys [job-id-counter append-only-log]}]
+  (start-queue-service job-id-counter append-only-log))
 
 (defmethod ig/halt-key! ::queue-service
   [_ {:keys [mutation-thread]}]
