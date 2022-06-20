@@ -8,10 +8,10 @@
 (defn written-contents [append-only-log]
   (aol/entry-seq (aol/new-reader append-only-log)))
 
-(derive ::string-append-only-log :small-stalk.queue-service.service/append-only-log)
+(derive ::string-append-only-log :small-stalk.queue-service.mutation-log/append-only-log)
 
 (def test-config (-> system/config
-                     (dissoc :small-stalk.queue-service.service/append-only-log)
+                     (dissoc :small-stalk.queue-service.mutation-log/append-only-log)
                      (assoc ::string-append-only-log "")))
 
 (defmethod ig/init-key ::string-append-only-log

@@ -5,7 +5,8 @@
             [small-stalk.threads :as vthreads]
             [small-stalk.failure :as ssf]
             [small-stalk.test-helpers :as test-helpers]
-            [small-stalk.queue-service.priority-queue :as pqueue]))
+            [small-stalk.queue-service.priority-queue :as pqueue]
+            [small-stalk.queue-service.state :as state]))
 
 (deftest put-test
   (testing "when there are no pending reserves"
@@ -31,7 +32,7 @@
         (Thread/sleep 50)
         (queue-service/put q-service job)
         (is (= job (deref reserved-job-future 2000 :deref-timed-out)))
-        (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service))))))))
+        (is (nil? (@#'state/next-waiting-reserve @(:state-atom q-service))))))))
 
 (deftest reserve-test
   (testing "without a timeout"
@@ -45,21 +46,21 @@
               reserved-job (queue-service/reserve q-service 69)]
           (is (= job reserved-job))
           (is (nil? (queue-service/peek-ready q-service)))
-          (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))
+          (is (nil? (@#'state/next-waiting-reserve @(:state-atom q-service)))))))
 
     (testing "when no job is ready"
       (with-open [system (test-helpers/open-system! [::queue-service/queue-service])]
         (let [q-service (system/get system ::queue-service/queue-service)
               _         (vthreads/future (queue-service/reserve q-service 69))]
           (Thread/sleep 50)
-          (is (some? (@#'queue-service/next-waiting-reserve @(:state-atom q-service))))))))
+          (is (some? (@#'state/next-waiting-reserve @(:state-atom q-service))))))))
 
   (testing "with a timeout"
     (testing "when no job is received within the timeout period"
       (with-open [system (test-helpers/open-system! [::queue-service/queue-service])]
         (let [q-service      (system/get system ::queue-service/queue-service)
               reserve-future (vthreads/future (queue-service/reserve q-service 69 1))]
-          (is (= (ssf/fail {:type ::queue-service/reserve-waiting-timed-out})
+          (is (= (ssf/fail {:type ::state/reserve-waiting-timed-out})
                  (deref reserve-future 3000 :deref-timed-out)))
           (is (empty? (:reserve-timeout-timers @(:state-atom q-service)))))))
 
@@ -87,15 +88,15 @@
                 reserved-job (queue-service/reserve q-service 69 0)]
             (is (= job reserved-job))
             (is (nil? (queue-service/peek-ready q-service)))
-            (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))
+            (is (nil? (@#'state/next-waiting-reserve @(:state-atom q-service)))))))
 
       (testing "when no job is ready"
         (with-open [system (test-helpers/open-system! [::queue-service/queue-service])]
           (let [q-service      (system/get system ::queue-service/queue-service)
                 reserve-future (vthreads/future (queue-service/reserve q-service 69 0))]
-            (is (= (ssf/fail {:type ::queue-service/reserve-waiting-timed-out})
+            (is (= (ssf/fail {:type ::state/reserve-waiting-timed-out})
                    (deref reserve-future 3000 :deref-timed-out)))
-            (is (nil? (@#'queue-service/next-waiting-reserve @(:state-atom q-service)))))))))
+            (is (nil? (@#'state/next-waiting-reserve @(:state-atom q-service)))))))))
 
   (testing "when the job has a time to run"
     (with-open [system (test-helpers/open-system! [::queue-service/queue-service])]
@@ -136,7 +137,7 @@
                        :data     "foobar"}
             _         (queue-service/put q-service job)
             _         (queue-service/reserve q-service 69)]
-        (is (= (ssf/fail {:type ::queue-service/job-not-found}) (queue-service/delete q-service 42 5)))
+        (is (= (ssf/fail {:type ::state/job-not-found}) (queue-service/delete q-service 42 5)))
         (is (= #{(assoc job :reserved-by 69)} (:reserved-jobs @(:state-atom q-service)))))))
 
   (testing "when the job is in the ready queue"
@@ -152,7 +153,7 @@
   (testing "when a job with the given ID is not present"
     (with-open [system (test-helpers/open-system! [::queue-service/queue-service])]
       (let [q-service (system/get system ::queue-service/queue-service)]
-        (is (= (ssf/fail {:type ::queue-service/job-not-found}) (queue-service/delete q-service 42 5)))))))
+        (is (= (ssf/fail {:type ::state/job-not-found}) (queue-service/delete q-service 42 5)))))))
 
 (deftest release-test
   (testing "when the current connection has reserved the job"
@@ -203,7 +204,7 @@
                        :data     "foobar"}
             _         (queue-service/put q-service job)
             _         (queue-service/reserve q-service 69)]
-        (is (= (ssf/fail {:type ::queue-service/job-not-found})
+        (is (= (ssf/fail {:type ::state/job-not-found})
                (queue-service/release q-service 42 5 3)))
         (is (= #{{:id          5
                   :priority    2
@@ -220,7 +221,7 @@
                        :data     "foobar"}
             _         (queue-service/put q-service job)
             _         (queue-service/reserve q-service 69)]
-        (is (= (ssf/fail {:type ::queue-service/job-not-found})
+        (is (= (ssf/fail {:type ::state/job-not-found})
                (queue-service/release q-service 69 6 3)))
         (is (= #{{:id          5
                   :priority    2

@@ -8,6 +8,7 @@
 (defn generate-job-id [job-id-counter]
   (swap! job-id-counter inc))
 
+;; TODO: Move the job id counter into the queue service, and make this create a job description.
 (defn make-job [job-id-counter priority data time-to-run-secs]
   {:id               (generate-job-id job-id-counter)
    :priority         priority

@@ -34,7 +34,7 @@
                                                                 (str "RESERVED " (:id reserved-job-or-error)))
                                         (ssio/write-crlf-string output-stream
                                                                 (str (:data reserved-job-or-error))))
-      (= ::queue-service/reserve-waiting-timed-out
+      (= :small-stalk.queue-service.state/reserve-waiting-timed-out
          (:type reserved-job-or-error)) (ssio/write-crlf-string output-stream "TIMED_OUT")
       :else reserved-job-or-error)))
 
@@ -50,7 +50,7 @@
   (let [deleted-job-or-error (queue-service/delete queue-service connection-id job-id)]
     (cond
       (f/ok? deleted-job-or-error) (ssio/write-crlf-string output-stream "DELETED")
-      (= ::queue-service/job-not-found
+      (= :small-stalk.queue-service.state/job-not-found
          (:type deleted-job-or-error)) (ssio/write-crlf-string output-stream "NOT_FOUND")
       :else deleted-job-or-error)))
 
@@ -59,7 +59,7 @@
   (let [released-job-or-error (queue-service/release queue-service connection-id job-id new-priority)]
     (cond
       (f/ok? released-job-or-error) (ssio/write-crlf-string output-stream "RELEASED")
-      (= ::queue-service/job-not-found
+      (= :small-stalk.queue-service.state/job-not-found
          (:type released-job-or-error)) (ssio/write-crlf-string output-stream "NOT_FOUND")
       :else released-job-or-error)))
 
