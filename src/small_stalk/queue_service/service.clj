@@ -24,7 +24,8 @@
               (mutation-log/write-to-log append-only-log mutation)
               (state/process-mutation {:state-atom     state-atom
                                        :mutation-queue mutation-queue}
-                                      mutation)
+                                      mutation
+                                      false)
               (recur))))
         (catch InterruptedException _
           (println "Queue service mutation thread interrupted! Shutting it down!"))
