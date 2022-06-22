@@ -6,7 +6,8 @@
             [small-stalk.persistence.append-only-log :as aol]))
 
 (defn written-contents [append-only-log]
-  (aol/entry-seq (aol/new-reader append-only-log)))
+  (with-open [reader (aol/new-reader append-only-log)]
+    (doall (aol/entry-seq reader))))
 
 (derive ::string-append-only-log :small-stalk.queue-service.mutation-log/append-only-log)
 

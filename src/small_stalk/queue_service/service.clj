@@ -33,10 +33,10 @@
           (state/cancel-all-timers @state-atom))))))
 
 ;; Initial state
-(defn start-queue-service [job-id-counter append-only-log]
+(defn start-queue-service [append-only-log]
   (let [state-atom     (state/new-state)
         mutation-queue (LinkedBlockingQueue.)]
-    (state/replay-from-aof! state-atom job-id-counter append-only-log)
+    (state/replay-from-aof! state-atom append-only-log)
     {:state-atom
      state-atom
      :mutation-queue
@@ -45,19 +45,19 @@
      (start-mutation-thread state-atom mutation-queue append-only-log)}))
 
 (defmethod ig/init-key ::queue-service
-  [_ {:keys [job-id-counter append-only-log]}]
-  (start-queue-service job-id-counter append-only-log))
+  [_ {:keys [append-only-log]}]
+  (start-queue-service append-only-log))
 
 (defmethod ig/halt-key! ::queue-service
   [_ {:keys [mutation-thread]}]
   (.interrupt mutation-thread))
 
 ;; API
-(defn put [{:keys [mutation-queue] :as _service} job]
+(defn put [{:keys [mutation-queue] :as _service} job-description]
   (let [return-promise (promise)]
-    (state/enqueue-mutation mutation-queue {:type           ::state/put
-                                            :job            job
-                                            :return-promise return-promise})
+    (state/enqueue-mutation mutation-queue {:type            ::state/put
+                                            :job-description job-description
+                                            :return-promise  return-promise})
     @return-promise))
 
 (defn peek-ready [{:keys [state-atom] :as _service}]

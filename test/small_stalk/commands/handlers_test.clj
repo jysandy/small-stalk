@@ -45,15 +45,15 @@
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            q-service      (system/get system ::queue-service/queue-service)]
-        (queue-service/put q-service {:id       5
-                                      :priority 2
-                                      :data     "foobar"})
+            q-service      (system/get system ::queue-service/queue-service)
+            job            (queue-service/put q-service {:priority 2
+                                                         :data     "foobar"})]
         (handle-command {:command-name "peek-ready"}
                         69
                         in-stream
                         out-stream)
-        (is (= "FOUND 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
+        (is (= (format "FOUND %d\r\nfoobar\r\n" (:id job))
+               (.toString out-stream "US-ASCII"))))))
 
   (testing "when no job is ready"
     (with-open [system     (test-helpers/open-system! [::handlers/command-handler])
@@ -71,15 +71,15 @@
               in-stream  (io/input-stream (.getBytes ""))
               out-stream (ByteArrayOutputStream.)]
     (let [handle-command (system/get system ::handlers/command-handler)
-          q-service      (system/get system ::queue-service/queue-service)]
-      (queue-service/put q-service {:id       5
-                                    :priority 2
-                                    :data     "foobar"})
+          q-service      (system/get system ::queue-service/queue-service)
+          job            (queue-service/put q-service {:id       5
+                                                       :priority 2
+                                                       :data     "foobar"})]
       (handle-command {:command-name "reserve"}
                       69
                       in-stream
                       out-stream)
-      (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
+      (is (= (format "RESERVED %d\r\nfoobar\r\n" (:id job)) (.toString out-stream "US-ASCII"))))))
 
 (deftest handle-reserve-with-timeout-command-test
   (testing "when a job was found"
@@ -87,16 +87,15 @@
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            q-service      (system/get system ::queue-service/queue-service)]
-        (queue-service/put q-service {:id       5
-                                      :priority 2
-                                      :data     "foobar"})
+            q-service      (system/get system ::queue-service/queue-service)
+            job            (queue-service/put q-service {:priority 2
+                                                         :data     "foobar"})]
         (handle-command {:command-name "reserve-with-timeout"
                          :timeout-secs 0}
                         69
                         in-stream
                         out-stream)
-        (is (= "RESERVED 5\r\nfoobar\r\n" (.toString out-stream "US-ASCII"))))))
+        (is (= (format "RESERVED %d\r\nfoobar\r\n" (:id job)) (.toString out-stream "US-ASCII"))))))
 
   (testing "when the reserve times out"
     (with-open [system     (test-helpers/open-system! [::handlers/command-handler])
@@ -116,13 +115,13 @@
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            q-service      (system/get system ::queue-service/queue-service)]
-        (queue-service/put q-service {:id       5
-                                      :priority 2
-                                      :data     "foobar"})
-        (queue-service/reserve q-service 69)
+            q-service      (system/get system ::queue-service/queue-service)
+            _              (queue-service/put q-service {
+                                                         :priority 2
+                                                         :data     "foobar"})
+            reserved-job   (queue-service/reserve q-service 69)]
         (handle-command {:command-name "delete"
-                         :job-id       5}
+                         :job-id       (:id reserved-job)}
                         69
                         in-stream
                         out-stream)
@@ -146,13 +145,13 @@
                 in-stream  (io/input-stream (.getBytes ""))
                 out-stream (ByteArrayOutputStream.)]
       (let [handle-command (system/get system ::handlers/command-handler)
-            q-service      (system/get system ::queue-service/queue-service)]
-        (queue-service/put q-service {:id       5
-                                      :priority 2
-                                      :data     "foobar"})
-        (queue-service/reserve q-service 69)
+            q-service      (system/get system ::queue-service/queue-service)
+            _              (queue-service/put q-service {:id       5
+                                                         :priority 2
+                                                         :data     "foobar"})
+            reserved-job   (queue-service/reserve q-service 69)]
         (handle-command {:command-name "release"
-                         :job-id       5
+                         :job-id       (:id reserved-job)
                          :new-priority 1}
                         69
                         in-stream

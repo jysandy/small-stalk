@@ -1,18 +1,18 @@
 (ns small-stalk.queue-service.state
   (:require [small-stalk.queue-service.priority-queue :as pqueue]
             [small-stalk.threads :as vthreads]
-            [integrant.core :as ig]
             [small-stalk.failure :as ssf]
             [medley.core :as medley]
             [small-stalk.queue-service.persistent-queue :as persistent-queue]
             [small-stalk.queue-service.mutation-log :as mutation-log])
   (:import (java.util.concurrent BlockingQueue)
-  (clojure.lang PersistentQueue)))
+           (clojure.lang PersistentQueue)))
 
 (defn new-state
   "Returns an atom seeded with the initial state."
   []
   (atom {
+         :job-id-counter         -1
          ;; The priority queue.
          :pqueue                 (pqueue/create)
          ;; The set of jobs that were reserved, including a reserved-by key in each.
@@ -173,18 +173,22 @@
         (deliver-if-live (:return-promise waiting-reserve) job replay-mode?))
     (swap! state-atom add-ready-job job)))
 
-(defn- largest-job-id [jobs]
-  (when (seq jobs)
-    (apply max (map :id jobs))))
+(defn- generate-job-id! [state-atom]
+  (let [new-state (swap! state-atom #(update % :job-id-counter inc))]
+    (:job-id-counter new-state)))
+
+(defn- add-job-id! [job state-atom]
+  (assoc job :id (generate-job-id! state-atom)))
 
 ;; Mutators
 
 (defmulti process-mutation (fn [_q-service mutation _replay-mode?] (:type mutation)))
 
 (defmethod process-mutation ::put
-  [{:keys [state-atom mutation-queue]} {:keys [job return-promise] :as _mutation} replay-mode?]
-  (put-ready-job! state-atom mutation-queue job replay-mode?)
-  (deliver-if-live return-promise job replay-mode?))
+  [{:keys [state-atom mutation-queue]} {:keys [job-description return-promise] :as _mutation} replay-mode?]
+  (let [job-with-id (add-job-id! job-description state-atom)]
+    (put-ready-job! state-atom mutation-queue job-with-id replay-mode?)
+    (deliver-if-live return-promise job-with-id replay-mode?)))
 
 (defmethod process-mutation ::reserve
   [{:keys [state-atom mutation-queue]} {:keys [return-promise connection-id timeout-secs] :as mutation} replay-mode?]
@@ -270,17 +274,11 @@
     (deliver-if-live return-promise (ssf/fail {:type ::job-not-found}) replay-mode?)))
 
 ;; AOF persistence
-(defn replay-from-aof! [state-atom job-id-counter append-only-log]
+(defn replay-from-aof! [state-atom append-only-log]
   (let [mutations (mutation-log/read-mutations-from-log append-only-log)]
     (doseq [mutation mutations]
       (process-mutation {:state-atom     state-atom
                          :mutation-queue nil}
                         mutation
                         true))
-    (cleanup-after-replay! state-atom)
-
-    ;; So that we don't have ID collisions.
-    (reset! job-id-counter (or (largest-job-id (->> mutations
-                                                    (filter #(= ::put (:type %)))
-                                                    (map :job)))
-                               -1))))
+    (cleanup-after-replay! state-atom)))
