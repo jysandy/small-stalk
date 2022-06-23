@@ -1,23 +1,19 @@
 (ns small-stalk.test-helpers
   (:require [clojure.test :refer :all]
             [small-stalk.system :as system]
-            [small-stalk.persistence.append-only-log.string :as aol-string]
             [integrant.core :as ig]
-            [small-stalk.persistence.append-only-log :as aol]))
+            [clojure.java.io :as io]
+            [small-stalk.persistence.service :as p-service]))
 
-(defn written-contents [append-only-log]
-  (with-open [reader (aol/new-reader append-only-log)]
-    (doall (aol/entry-seq reader))))
-
-(derive ::string-append-only-log :small-stalk.queue-service.mutation-log/append-only-log)
+(derive ::string-persistence-service :small-stalk.persistence.service/persistence-service)
 
 (def test-config (-> system/config
-                     (dissoc :small-stalk.queue-service.mutation-log/append-only-log)
-                     (assoc ::string-append-only-log "")))
+                     (dissoc :small-stalk.persistence.service/persistence-service)
+                     (assoc ::string-persistence-service "")))
 
-(defmethod ig/init-key ::string-append-only-log
+(defmethod ig/init-key ::string-persistence-service
   [_ fake-string]
-  (aol-string/string-append-only-log fake-string))
+  (p-service/string-persistence-service fake-string))
 
 (defn open-system!
   ([]
@@ -27,5 +23,17 @@
 
 (defn open-system-with-aof-contents!
   [keys aof-contents]
-  (system/open-system! (assoc test-config ::string-append-only-log aof-contents)
+  (system/open-system! (assoc test-config ::string-persistence-service aof-contents)
                        keys))
+
+(defn clear-directory
+  [path]
+  (doall (map io/delete-file (.listFiles (io/file path)))))
+
+(defn directory-contents
+  [path]
+  (set (map #(.getName %) (.listFiles (io/file path)))))
+
+(defn make-directory
+  [directory-path-without-trailing-slash]
+  (io/make-parents (str directory-path-without-trailing-slash "/foo")))

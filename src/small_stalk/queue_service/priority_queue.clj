@@ -76,6 +76,14 @@
                         [priority item])
                       persistent-queue)))))
 
+(defn from-seq
+  "Creates a priority queue out of a sequence of priority-value tuples."
+  [tuple-seq]
+  (reduce (fn [queue [priority value]]
+            (push queue priority value))
+          (create)
+          tuple-seq))
+
 (defn find-by
   "Returns elements in the queue matching pred. Does not include their priorities,
   but elements will be in priority order."

@@ -9,11 +9,11 @@
             [small-stalk.threads :as vthreads]
             [integrant.core :as ig]
             [small-stalk.queue-service.state :as state]
-            [small-stalk.queue-service.mutation-log :as mutation-log])
+            [small-stalk.persistence.service :as p-service])
   (:import (java.util.concurrent LinkedBlockingQueue BlockingQueue)))
 
 ;; Mutation thread
-(defn start-mutation-thread [state-atom mutation-queue append-only-log]
+(defn start-mutation-thread [state-atom mutation-queue persistence-service]
   (vthreads/start-thread
     (fn []
       (try
@@ -21,7 +21,7 @@
           (if (.isInterrupted (Thread/currentThread))
             (println "Queue service mutation thread interrupted! Shutting it down!")
             (let [mutation (.take ^BlockingQueue mutation-queue)]
-              (mutation-log/write-to-log append-only-log mutation)
+              (p-service/write-mutation persistence-service mutation)
               (state/process-mutation {:state-atom     state-atom
                                        :mutation-queue mutation-queue}
                                       mutation
@@ -33,20 +33,19 @@
           (state/cancel-all-timers @state-atom))))))
 
 ;; Initial state
-(defn start-queue-service [append-only-log]
-  (let [state-atom     (state/new-state)
+(defn start-queue-service [persistence-service]
+  (let [state-atom     (p-service/load-state-atom persistence-service)
         mutation-queue (LinkedBlockingQueue.)]
-    (state/replay-from-aof! state-atom append-only-log)
     {:state-atom
      state-atom
      :mutation-queue
      mutation-queue
      :mutation-thread
-     (start-mutation-thread state-atom mutation-queue append-only-log)}))
+     (start-mutation-thread state-atom mutation-queue persistence-service)}))
 
 (defmethod ig/init-key ::queue-service
-  [_ {:keys [append-only-log]}]
-  (start-queue-service append-only-log))
+  [_ {:keys [persistence-service]}]
+  (start-queue-service persistence-service))
 
 (defmethod ig/halt-key! ::queue-service
   [_ {:keys [mutation-thread]}]

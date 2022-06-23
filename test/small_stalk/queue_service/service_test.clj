@@ -6,7 +6,8 @@
             [small-stalk.failure :as ssf]
             [small-stalk.test-helpers :as test-helpers]
             [small-stalk.queue-service.priority-queue :as pqueue]
-            [small-stalk.queue-service.state :as state]))
+            [small-stalk.queue-service.state :as state]
+            [small-stalk.persistence.service :as p-service]))
 
 (deftest put-test
   (testing "when there are no pending reserves"
@@ -225,8 +226,8 @@
           (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                    [::queue-service/queue-service]
                                    (-> old-system
-                                       (system/get ::test-helpers/string-append-only-log)
-                                       test-helpers/written-contents))]
+                                       (system/get ::test-helpers/string-persistence-service)
+                                       p-service/written-contents))]
             (is (= old-queue-state
                    (-> new-system
                        (system/get ::queue-service/queue-service)
@@ -254,8 +255,8 @@
         (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                  [::queue-service/queue-service]
                                  (-> old-system
-                                     (system/get ::test-helpers/string-append-only-log)
-                                     test-helpers/written-contents))]
+                                     (system/get ::test-helpers/string-persistence-service)
+                                     p-service/written-contents))]
           (is (= [[2 {:id       1
                       :priority 2
                       :data     "baz"}]
@@ -291,8 +292,8 @@
         (with-open [new-system (test-helpers/open-system-with-aof-contents!
                                  [::queue-service/queue-service]
                                  (-> old-system
-                                     (system/get ::test-helpers/string-append-only-log)
-                                     test-helpers/written-contents))]
+                                     (system/get ::test-helpers/string-persistence-service)
+                                     p-service/written-contents))]
           (is (= (pqueue/create)
                  (-> new-system
                      (system/get ::queue-service/queue-service)

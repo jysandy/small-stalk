@@ -30,10 +30,6 @@
 (defn- generate-next-file-name [aof-file-name]
   (str (inc (aof-file-number aof-file-name)) ".aof.edn"))
 
-(defn- next-file-name [^String directory-path current-file-name]
-  (->> (sorted-aof-files directory-path)
-       (element-after current-file-name)))
-
 (defn- find-first-file-name [^String directory-path]
   (->> (sorted-aof-files directory-path)
        first))
@@ -42,7 +38,21 @@
   (->> (sorted-aof-files directory-path)
        last))
 
-(defn- read-line-from-aof [{:keys [directory-path current-reader current-file-name] :as aof-reader}]
+(defn- next-file-name [{:keys [directory-path current-file-name file-list] :as _aof-reader}]
+  (if file-list
+    (element-after @current-file-name file-list)
+    (->> (sorted-aof-files directory-path)
+         (element-after @current-file-name))))
+
+(defn- open-next-file! [{:keys [directory-path current-reader current-file-name] :as aof-reader}]
+  (let [following-file-name (next-file-name aof-reader)]
+    (.close @current-reader)
+    (reset! current-file-name following-file-name)
+    (reset! current-reader (-> (join-path directory-path following-file-name)
+                               (io/file)
+                               (io/reader)))))
+
+(defn- read-line-from-aof [{:keys [current-reader] :as aof-reader}]
   (let [next-line (try
                     (.readLine @current-reader)
                     (catch IOException _
@@ -50,15 +60,9 @@
                       nil))]
     (cond
       (some? next-line) (edn/read-string next-line)
-      (nil? next-line) (if-let [following-file-name (next-file-name directory-path @current-file-name)]
-                         (do
-                           (.close @current-reader)
-                           (reset! current-file-name following-file-name)
-                           (reset! current-reader (-> (join-path directory-path following-file-name)
-                                                      (io/file)
-                                                      (io/reader)))
-                           (aol/read-entry aof-reader))
-                         nil))))
+      (nil? next-line) (when (next-file-name aof-reader)
+                         (open-next-file! aof-reader)
+                         (aol/read-entry aof-reader)))))
 
 (defn- close-aof-reader [aof-reader]
   (.close @(:current-reader aof-reader)))
@@ -79,6 +83,23 @@
                                                initial-file-name)
                                     (io/file)
                                     (io/reader)))})))
+
+(defn- aof-reader-of-inactive-files
+  "Returns a reader which only reads from files that are not currently
+  being written to. Effectively, these are all but the last file in the
+  directory."
+  [directory-path]
+  (let [file-names        (sorted-aof-files directory-path)
+        initial-file-name (first file-names)]
+    (when (>= (count file-names) 2)
+      (map->AOFReader
+        {:directory-path    directory-path
+         :file-list         (butlast file-names)
+         :current-file-name (atom initial-file-name)
+         :current-reader    (atom (-> (join-path directory-path
+                                                 initial-file-name)
+                                      (io/file)
+                                      (io/reader)))}))))
 
 (defn- aof-writer
   "Creates an AOF writer. This and its associated functions are not thread-safe. Use from one thread only."
@@ -131,3 +152,11 @@
   (map->FilesystemAppendOnlyLog
     {:directory-path   directory-path
      :directory-writer (aof-writer directory-path entry-limit-per-file)}))
+
+(defn new-inactive-file-reader [{:keys [directory-path] :as _fs-aol}]
+  (aof-reader-of-inactive-files directory-path))
+
+(defn delete-inactive-files [fs-aol]
+  (let [inactive-file-names (butlast (sorted-aof-files (:directory-path fs-aol)))]
+    (doseq [path (map (partial str "/") inactive-file-names)]
+      (io/delete-file path))))

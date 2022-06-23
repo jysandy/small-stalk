@@ -4,7 +4,9 @@
             [small-stalk.failure :as ssf]
             [medley.core :as medley]
             [small-stalk.queue-service.persistent-queue :as persistent-queue]
-            [small-stalk.queue-service.mutation-log :as mutation-log])
+            [small-stalk.queue-service.mutation-log :as mutation-log]
+            [clojure.edn :as edn]
+            [small-stalk.persistence.append-only-log :as aol])
   (:import (java.util.concurrent BlockingQueue)
            (clojure.lang PersistentQueue)))
 
@@ -274,11 +276,31 @@
     (deliver-if-live return-promise (ssf/fail {:type ::job-not-found}) replay-mode?)))
 
 ;; AOF persistence
-(defn replay-from-aof! [state-atom append-only-log]
-  (let [mutations (mutation-log/read-mutations-from-log append-only-log)]
+(defn replay-from-aof! [state-atom append-only-reader]
+  (let [mutations (doall (aol/entry-seq append-only-reader))]
     (doseq [mutation mutations]
       (process-mutation {:state-atom     state-atom
                          :mutation-queue nil}
                         mutation
                         true))
     (cleanup-after-replay! state-atom)))
+
+;; Dump persistence
+
+(defn dump-state [state file-path]
+  (spit file-path
+        (-> state
+            (select-keys [:job-id-counter
+                          :pqueue
+                          :reserved-jobs])
+            (update :pqueue pqueue/to-seq)
+            str)))
+
+(defn load-dump [file-path]
+  (let [state-atom (new-state)]
+    (swap! state-atom merge (-> file-path
+                                (slurp)
+                                (edn/read-string)
+                                (update :pqueue pqueue/from-seq)))
+    (cleanup-after-replay! state-atom)
+    state-atom))

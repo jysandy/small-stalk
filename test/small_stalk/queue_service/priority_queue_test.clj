@@ -80,10 +80,18 @@
            filtered-queue))))
 
 (deftest find-by-test
-  (let [queue          (-> (pqueue/create)
-                           (pqueue/push 10 1)
-                           (pqueue/push 5 2)
-                           (pqueue/push 1 3)
-                           (pqueue/push 1 4))]
+  (let [queue (-> (pqueue/create)
+                  (pqueue/push 10 1)
+                  (pqueue/push 5 2)
+                  (pqueue/push 1 3)
+                  (pqueue/push 1 4))]
     (is (= [3 1] (pqueue/find-by odd? queue)))
     (is (= [4 2] (pqueue/find-by even? queue)))))
+
+(deftest to-and-from-seq-test
+  (let [queue (-> (pqueue/create)
+                  (pqueue/push 10 1)
+                  (pqueue/push 5 2)
+                  (pqueue/push 1 3)
+                  (pqueue/push 1 4))]
+    (is (= queue (pqueue/from-seq (pqueue/to-seq queue))))))

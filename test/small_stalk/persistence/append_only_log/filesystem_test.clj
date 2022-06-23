@@ -3,25 +3,18 @@
             [clojure.java.io :as io]
             [small-stalk.persistence.append-only-log.filesystem :as aol-filesystem]
             [small-stalk.persistence.append-only-log :as aol]
-            [clojure.edn :as edn]))
-
-(defn- clear-directory
-  [path]
-  (doall (map io/delete-file (.listFiles (io/file path)))))
-
-(defn- directory-contents
-  [path]
-  (set (map #(.getName %) (.listFiles (io/file path)))))
+            [clojure.edn :as edn]
+            [small-stalk.test-helpers :as test-helpers]))
 
 (deftest aof-writer-test
-  (io/make-parents "/tmp/aof-files-test/foo")
-  (clear-directory "/tmp/aof-files-test")
+  (test-helpers/make-directory "/tmp/aof-files-test")
+  (test-helpers/clear-directory "/tmp/aof-files-test")
   (with-open [log (aol-filesystem/filesystem-append-only-log "/tmp/aof-files-test"
                                                              3)]
     (doseq [n (range 8)]
       (aol/write-entry log {:test n})))
   (is (= #{"1.aof.edn" "2.aof.edn" "3.aof.edn"}
-         (directory-contents "/tmp/aof-files-test")))
+         (test-helpers/directory-contents "/tmp/aof-files-test")))
   (let [first-file-contents  (->> (io/reader "/tmp/aof-files-test/1.aof.edn")
                                   (line-seq)
                                   (map edn/read-string))
@@ -44,14 +37,28 @@
            third-file-contents))))
 
 (deftest aof-writing-and-reading-test
-  (io/make-parents "/tmp/aof-files-test/foo")
-  (clear-directory "/tmp/aof-files-test")
-  (with-open [log (aol-filesystem/filesystem-append-only-log "/tmp/aof-files-test"
-                                                             3)]
-    (let [aof-records (map (fn [n] {:test n}) (range 8))]
-      (doall (map (partial aol/write-entry log)
-                  aof-records))
-      (is (= #{"1.aof.edn" "2.aof.edn" "3.aof.edn"}
-             (directory-contents "/tmp/aof-files-test")))
-      (with-open [reader (aol/new-reader log)]
-        (is (= aof-records (aol/entry-seq reader)))))))
+  (testing "the regular reader"
+    (test-helpers/make-directory "/tmp/aof-files-test")
+    (test-helpers/clear-directory "/tmp/aof-files-test")
+    (with-open [log (aol-filesystem/filesystem-append-only-log "/tmp/aof-files-test"
+                                                               3)]
+      (let [aof-records (map (fn [n] {:test n}) (range 8))]
+        (doall (map (partial aol/write-entry log)
+                    aof-records))
+        (is (= #{"1.aof.edn" "2.aof.edn" "3.aof.edn"}
+               (test-helpers/directory-contents "/tmp/aof-files-test")))
+        (with-open [reader (aol/new-reader log)]
+          (is (= aof-records (aol/entry-seq reader)))))))
+
+  (testing "the inactive file reader"
+    (test-helpers/make-directory "/tmp/aof-files-test")
+    (test-helpers/clear-directory "/tmp/aof-files-test")
+    (with-open [log (aol-filesystem/filesystem-append-only-log "/tmp/aof-files-test"
+                                                               3)]
+      (let [aof-records (map (fn [n] {:test n}) (range 8))]
+        (doall (map (partial aol/write-entry log)
+                    aof-records))
+        (is (= #{"1.aof.edn" "2.aof.edn" "3.aof.edn"}
+               (test-helpers/directory-contents "/tmp/aof-files-test")))
+        (with-open [reader (aol-filesystem/new-inactive-file-reader log)]
+          (is (= (take 6 aof-records) (aol/entry-seq reader))))))))
