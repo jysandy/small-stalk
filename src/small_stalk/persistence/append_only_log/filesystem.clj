@@ -84,6 +84,12 @@
                                     (io/file)
                                     (io/reader)))})))
 
+(def empty-reader (reify
+                    aol/AppendOnlyLogReader
+                    (read-entry [_] nil)
+                    Closeable
+                    (close [_] nil)))
+
 (defn- aof-reader-of-inactive-files
   "Returns a reader which only reads from files that are not currently
   being written to. Effectively, these are all but the last file in the
@@ -91,7 +97,7 @@
   [directory-path]
   (let [file-names        (sorted-aof-files directory-path)
         initial-file-name (first file-names)]
-    (when (>= (count file-names) 2)
+    (if (>= (count file-names) 2)
       (map->AOFReader
         {:directory-path    directory-path
          :file-list         (butlast file-names)
@@ -99,7 +105,8 @@
          :current-reader    (atom (-> (join-path directory-path
                                                  initial-file-name)
                                       (io/file)
-                                      (io/reader)))}))))
+                                      (io/reader)))})
+      empty-reader)))
 
 (defn- aof-writer
   "Creates an AOF writer. This and its associated functions are not thread-safe. Use from one thread only."
@@ -158,5 +165,5 @@
 
 (defn delete-inactive-files [fs-aol]
   (let [inactive-file-names (butlast (sorted-aof-files (:directory-path fs-aol)))]
-    (doseq [path (map (partial str "/") inactive-file-names)]
+    (doseq [path (map (partial str (:directory-path fs-aol) "/") inactive-file-names)]
       (io/delete-file path))))

@@ -19,3 +19,23 @@
   [^Long delay-ms f]
   (future (Thread/sleep delay-ms)
           (f)))
+
+(defn start-worker-thread
+  "Starts a thread which runs f in an infinite loop until interrupted
+  or until f returns ::interrupt."
+  ([thread-name f]
+   (start-worker-thread thread-name f (fn [])))
+  ([thread-name f finally-f]
+   (start-thread
+     (fn []
+       (try
+         (loop []
+           (when-not (.isInterrupted (Thread/currentThread))
+             (let [ret (f)]
+               (if (= ret ::interrupt)
+                 nil
+                 (recur)))))
+         (catch InterruptedException _
+           (println (format "%s thread interrupted! Shutting it down!" thread-name)))
+         (finally
+           (finally-f)))))))

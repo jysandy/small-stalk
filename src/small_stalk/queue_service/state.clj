@@ -275,15 +275,17 @@
       (deliver-if-live return-promise released-job replay-mode?))
     (deliver-if-live return-promise (ssf/fail {:type ::job-not-found}) replay-mode?)))
 
+(defn replay-mutations! [state-atom mutations]
+  (doseq [mutation mutations]
+    (process-mutation {:state-atom     state-atom
+                       :mutation-queue nil}
+                      mutation
+                      true))
+  (cleanup-after-replay! state-atom))
+
 ;; AOF persistence
 (defn replay-from-aof! [state-atom append-only-reader]
-  (let [mutations (doall (aol/entry-seq append-only-reader))]
-    (doseq [mutation mutations]
-      (process-mutation {:state-atom     state-atom
-                         :mutation-queue nil}
-                        mutation
-                        true))
-    (cleanup-after-replay! state-atom)))
+  (replay-mutations! state-atom (aol/entry-seq append-only-reader)))
 
 ;; Dump persistence
 
