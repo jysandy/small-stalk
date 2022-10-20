@@ -4,6 +4,9 @@
 
 [beanstalkd](https://github.com/beanstalkd/beanstalkd) rewritten in Clojure, because programming.
 
+## Architecture
+![small-stalk architecture](./architecture.png)
+
 ## Running
 Install the [Clojure CLI](https://clojure.org/reference/deps_and_cli).  
 This project requires a Project Loom preview build of the JDK. Download it [here](https://jdk.java.net/loom/).
