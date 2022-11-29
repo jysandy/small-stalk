@@ -11,7 +11,9 @@ Worker client 1->small-stalk:reserve
 small-stalk->Worker client 1:job with id 1 and data "foobar" reserved
 activate Worker client 1
 Worker client 2->small-stalk:reserve
+note over small-stalk:reserve is put on hold, because there are no jobs available
 note over Worker client 1:job is processed
+note over Worker client 2:waiting for reserve to complete
 Worker client 1->small-stalk:delete job with id 1
 deactivate Worker client 1
 small-stalk->Worker client 1:job deleted successfully
