@@ -1,0 +1,23 @@
+title Job processing in small-stalk
+
+participant Producer client
+participant small-stalk
+participant Worker client 1
+participant Worker client 2
+
+Producer client->small-stalk:put job
+small-stalk->Producer client:job queued successfully
+Worker client 1->small-stalk:reserve
+small-stalk->Worker client 1:job with id 1 and data "foobar" reserved
+activate Worker client 1
+Worker client 2->small-stalk:reserve
+note over Worker client 1:job is processed
+Worker client 1->small-stalk:delete job with id 1
+deactivate Worker client 1
+small-stalk->Worker client 1:job deleted successfully
+
+Producer client->small-stalk:put job
+small-stalk->Producer client:job queued successfully
+small-stalk->Worker client 2:job with id 2 and data "baz" reserved
+
+note right of small-stalk:...and so on\n
