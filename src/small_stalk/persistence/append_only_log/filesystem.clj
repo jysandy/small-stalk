@@ -132,6 +132,7 @@
            entries-written
            current-file-name
            data-directory]}]
+  (println (str "Closing writer for " @current-file-name))
   (.close @current-writer)
   (let [next-file-name (join-path data-directory (generate-next-file-name @current-file-name))]
     (reset! current-file-name next-file-name)

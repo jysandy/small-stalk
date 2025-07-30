@@ -5,7 +5,8 @@
             [small-stalk.queue-service.state :as state]
             [clojure.java.io :as io]
             [integrant.core :as ig]
-            [small-stalk.threads :as vthreads]))
+            [small-stalk.threads :as vthreads])
+  (:import (java.io IOException)))
 
 (def dump-file-name "base.dump.edn")
 
@@ -35,8 +36,10 @@
   (let [queue-state-atom (load-state-atom-from-dump directory-path)]
     (with-open [reader (aol-filesystem/new-inactive-file-reader append-only-log)]
       (state/replay-from-aof! queue-state-atom reader)
-      (state/dump-state @queue-state-atom (str directory-path "/" dump-file-name))
-      (aol-filesystem/delete-inactive-files append-only-log))))
+      (state/dump-state @queue-state-atom (str directory-path "/" dump-file-name)))
+    ;; On Windows, the reader needs to be closed before
+    ;; the inactive files can be deleted
+    (aol-filesystem/delete-inactive-files append-only-log)))
 
 (defrecord FSPersistenceService [directory-path entries-per-file append-only-log]
   PersistenceService
@@ -60,7 +63,10 @@
     "Compactor"
     (fn []
       (Thread/sleep 10000)
-      (compact persistence-service))))
+      (try
+        (compact persistence-service)
+        (catch IOException e
+          (println e))))))
 
 (defn fs-persistence-service [directory-path entries-per-file]
   (let [append-only-log (aol-filesystem/filesystem-append-only-log directory-path
